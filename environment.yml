@@ -5,12 +5,12 @@ channels:
   - conda-forge
   - defaults
 dependencies:
-  - ffmpeg
   - pillow
   - pip
   - python<=3.12
   - typing_extensions
   - pip:
+    - ffmpeg
     - torch
     - torchaudio
     - torchvision
@@ -24,6 +24,5 @@ dependencies:
     - plyfile
     - 2dGScode/submodules/diff-surfel-rasterization
     - 2dGScode/submodules/simple-knn
-    - opencv-python
     - munch
     - pyyaml

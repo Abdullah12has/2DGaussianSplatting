@@ -218,7 +218,7 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_i
                         depth = depth / norm
                         depth = colormap(depth.cpu().numpy()[0], cmap='turbo')
                         tb_writer.add_images(config['name'] + "_view_{}/depth".format(viewpoint.image_name), depth[None], global_step=iteration)
-                        tb_writer.add_images(config['name'] + "_view_{}/render".format(viewpoint.image_name), image[None], global_step=iteration)
+                        tb_writer.add_images(config['name'] + "_view_{}/render".format(viewpoint.image_name), image[None],   global_step=iteration)
 
                         try:
                             rend_alpha = render_pkg['rend_alpha']
