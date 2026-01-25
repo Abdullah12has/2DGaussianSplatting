@@ -12,7 +12,7 @@
 import os
 import torch
 from random import randint
-from utils.loss_utils import l1_loss, ssim
+from utils.loss_utils import l1_loss, ssim, scale_invariant_depth_loss, mono_normal_loss
 from gaussian_renderer import render, network_gui
 import sys
 from scene import Scene, GaussianModel
@@ -84,8 +84,23 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         normal_loss = lambda_normal * (normal_error).mean()
         dist_loss = lambda_dist * (rend_dist).mean()
 
+        # Monocular prior losses (Task 4)
+        mono_depth_loss = torch.tensor(0.0, device="cuda")
+        mono_normal_loss_val = torch.tensor(0.0, device="cuda")
+        
+        if opt.lambda_mono_depth > 0 and viewpoint_cam.mono_depth is not None:
+            surf_depth = render_pkg['surf_depth']
+            mono_depth_loss = opt.lambda_mono_depth * scale_invariant_depth_loss(
+                surf_depth, viewpoint_cam.mono_depth
+            )
+        
+        if opt.lambda_mono_normal > 0 and viewpoint_cam.mono_normal is not None:
+            mono_normal_loss_val = opt.lambda_mono_normal * mono_normal_loss(
+                rend_normal, viewpoint_cam.mono_normal
+            )
+
         # loss
-        total_loss = loss + dist_loss + normal_loss
+        total_loss = loss + dist_loss + normal_loss + mono_depth_loss + mono_normal_loss_val
         
         total_loss.backward()
 
@@ -133,6 +148,34 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                 
                 if iteration % opt.opacity_reset_interval == 0 or (dataset.white_background and iteration == opt.densify_from_iter):
                     gaussians.reset_opacity()
+
+            # Depth Reinitialization (Task 2) - Mini-Splatting strategy
+            if len(opt.depth_reinit_iters) > 0 and iteration in opt.depth_reinit_iters:
+                from utils.depth_reinit import aggregate_depth_points, filter_duplicate_points
+                print(f"\n[ITER {iteration}] Depth Reinitialization (Mini-Splatting)")
+                
+                # Use ALL training cameras (Mini-Splatting uses all views)
+                train_cameras = scene.getTrainCameras()
+                
+                # Aggregate depth points with importance sampling
+                depth_points, depth_colors = aggregate_depth_points(
+                    train_cameras,
+                    gaussians, pipe, background, render,
+                    target_total_points=opt.reinit_target_points
+                )
+                
+                # Filter duplicate points (optional, for efficiency)
+                depth_points, depth_colors = filter_duplicate_points(depth_points, depth_colors)
+                
+                # Complete replacement - discard all old Gaussians
+                gaussians.reinitialize_from_depth(
+                    depth_points, depth_colors, opt
+                )
+                
+                # Clear cache and reset viewpoint stack
+                torch.cuda.empty_cache()
+                viewpoint_stack = None
+
 
             # Optimizer step
             if iteration < opt.iterations:

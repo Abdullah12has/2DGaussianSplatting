@@ -72,3 +72,109 @@ def _ssim(img1, img2, window, window_size, channel, size_average=True):
     else:
         return ssim_map.mean(1).mean(1).mean(1)
 
+
+def scale_invariant_depth_loss(pred_depth, mono_depth, mask=None):
+    """
+    Scale-invariant depth loss (MonoSDF style).
+    Estimates optimal scale & shift via least-squares.
+    
+    Since monocular depth is relative (up to scale and shift),
+    we solve: min_w,q ||w * pred + q - mono||^2
+    
+    Args:
+        pred_depth: Rendered depth [1, H, W] or [H, W]
+        mono_depth: Monocular prior [1, H, W] or [H, W]
+        mask: Optional valid region mask [H, W]
+        
+    Returns:
+        Loss value (scalar)
+    """
+    # Flatten tensors
+    if pred_depth.dim() == 3:
+        pred_depth = pred_depth.squeeze(0)
+    if mono_depth.dim() == 3:
+        mono_depth = mono_depth.squeeze(0)
+    
+    pred_flat = pred_depth.flatten()
+    mono_flat = mono_depth.flatten()
+    
+    # Apply mask if provided
+    if mask is not None:
+        mask_flat = mask.flatten()
+        valid = mask_flat & (pred_flat > 0) & ~torch.isnan(pred_flat) & ~torch.isnan(mono_flat)
+    else:
+        valid = (pred_flat > 0) & ~torch.isnan(pred_flat) & ~torch.isnan(mono_flat)
+    
+    if valid.sum() < 10:
+        return torch.tensor(0.0, device=pred_depth.device)
+    
+    pred_valid = pred_flat[valid]
+    mono_valid = mono_flat[valid]
+    
+    # Solve least squares: [w, q] = argmin ||A @ [w, q]^T - b||^2
+    # where A = [pred, 1] and b = mono
+    # Normal equations: A^T A @ x = A^T b
+    
+    # A^T A = [[sum(pred^2), sum(pred)], [sum(pred), n]]
+    n = pred_valid.shape[0]
+    sum_pred = pred_valid.sum()
+    sum_pred_sq = (pred_valid ** 2).sum()
+    sum_mono = mono_valid.sum()
+    sum_pred_mono = (pred_valid * mono_valid).sum()
+    
+    # Solve 2x2 system
+    det = sum_pred_sq * n - sum_pred * sum_pred
+    if det.abs() < 1e-8:
+        # Degenerate case, use simple L1 loss
+        return torch.abs(pred_valid - mono_valid).mean()
+    
+    w = (n * sum_pred_mono - sum_pred * sum_mono) / det
+    q = (sum_pred_sq * sum_mono - sum_pred * sum_pred_mono) / det
+    
+    # Compute aligned prediction
+    aligned_pred = w * pred_valid + q
+    
+    # L2 loss
+    loss = ((aligned_pred - mono_valid) ** 2).mean()
+    
+    return loss
+
+
+def mono_normal_loss(pred_normal, mono_normal, mask=None):
+    """
+    Normal consistency loss (MonoSDF style).
+    Combines L1 and angular (cosine) loss.
+    
+    Args:
+        pred_normal: Rendered normal [3, H, W]
+        mono_normal: Monocular prior [3, H, W]
+        mask: Optional valid region mask [H, W]
+        
+    Returns:
+        Loss value (scalar)
+    """
+    if mask is not None:
+        # Expand mask to match normal dimensions
+        mask = mask.unsqueeze(0).expand_as(pred_normal)
+        pred_masked = pred_normal * mask
+        mono_masked = mono_normal * mask
+        
+        # Count valid pixels for normalization
+        num_valid = mask[0].sum().clamp(min=1)
+        
+        # L1 term
+        l1_term = torch.abs(pred_masked - mono_masked).sum() / (3 * num_valid)
+        
+        # Angular term (1 - cos similarity)
+        cos_sim = (pred_masked * mono_masked).sum(dim=0)  # [H, W]
+        angular_term = ((1 - cos_sim) * mask[0]).sum() / num_valid
+    else:
+        # L1 term  
+        l1_term = torch.abs(pred_normal - mono_normal).mean()
+        
+        # Angular term: 1 - dot product (should be 0 when aligned)
+        cos_sim = (pred_normal * mono_normal).sum(dim=0)  # [H, W]
+        angular_term = (1 - cos_sim).mean()
+    
+    return l1_term + angular_term
+

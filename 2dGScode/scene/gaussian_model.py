@@ -211,6 +211,62 @@ class GaussianModel:
         optimizable_tensors = self.replace_tensor_to_optimizer(opacities_new, "opacity")
         self._opacity = optimizable_tensors["opacity"]
 
+    def reinitialize_from_depth(self, depth_points, depth_colors, training_args):
+        """
+        Reinitialize Gaussians using depth-sampled points (Mini-Splatting strategy).
+        
+        COMPLETE REPLACEMENT - discards all existing Gaussians and rebuilds from depth.
+        
+        Args:
+            depth_points: [N, 3] 3D points from depth unprojection (torch tensor)
+            depth_colors: [N, 3] corresponding RGB colors (0-1, torch tensor)  
+            training_args: Training arguments for optimizer setup
+        """
+        from utils.sh_utils import RGB2SH
+        
+        n_new = depth_points.shape[0]
+        
+        print(f"[Depth Reinitialization] Replacing ALL Gaussians with {n_new} depth-sampled points")
+        
+        # Initialize ALL Gaussians from depth points (complete replacement)
+        new_xyz = depth_points.float().cuda()
+        new_colors = RGB2SH(depth_colors.float().cuda())
+        
+        new_features = torch.zeros((n_new, 3, (self.max_sh_degree + 1) ** 2)).float().cuda()
+        new_features[:, :3, 0] = new_colors
+        new_features_dc = new_features[:, :, 0:1].transpose(1, 2).contiguous()
+        new_features_rest = new_features[:, :, 1:].transpose(1, 2).contiguous()
+        
+        # Compute scales based on local density
+        from simple_knn._C import distCUDA2
+        dist2 = torch.clamp_min(distCUDA2(new_xyz), 0.0000001)
+        new_scaling = torch.log(torch.sqrt(dist2))[..., None].repeat(1, 3)
+        
+        new_rotation = torch.zeros((n_new, 4), device="cuda")
+        new_rotation[:, 0] = 1  # Identity quaternion
+        
+        new_opacity = self.inverse_opacity_activation(
+            0.1 * torch.ones((n_new, 1), dtype=torch.float, device="cuda")
+        )
+        
+        # Complete replacement - set all parameters
+        self._xyz = nn.Parameter(new_xyz.requires_grad_(True))
+        self._features_dc = nn.Parameter(new_features_dc.requires_grad_(True))
+        self._features_rest = nn.Parameter(new_features_rest.requires_grad_(True))
+        self._scaling = nn.Parameter(new_scaling.requires_grad_(True))
+        self._rotation = nn.Parameter(new_rotation.requires_grad_(True))
+        self._opacity = nn.Parameter(new_opacity.requires_grad_(True))
+        
+        # Reset auxiliary variables
+        self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
+        self.xyz_gradient_accum = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
+        self.denom = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
+        
+        # Rebuild optimizer with new parameters
+        self.training_setup(training_args)
+        
+        print(f"[Depth Reinitialization] Complete. Total Gaussians: {self.get_xyz.shape[0]}")
+
     def load_ply(self, path):
         plydata = PlyData.read(path)
 

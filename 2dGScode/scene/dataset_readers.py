@@ -34,6 +34,9 @@ class CameraInfo(NamedTuple):
     image_name: str
     width: int
     height: int
+    mono_depth: np.array = None  # Monocular depth prior [H, W]
+    mono_normal: np.array = None  # Monocular normal prior [H, W, 3]
+
 
 class SceneInfo(NamedTuple):
     point_cloud: BasicPointCloud
@@ -67,6 +70,16 @@ def getNerfppNorm(cam_info):
 
 def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder):
     cam_infos = []
+    
+    # Check for monocular priors directory
+    base_path = os.path.dirname(images_folder)
+    mono_depth_dir = os.path.join(base_path, "mono_priors", "mono_depth")
+    mono_normal_dir = os.path.join(base_path, "mono_priors", "mono_normal")
+    has_mono_priors = os.path.exists(mono_depth_dir) and os.path.exists(mono_normal_dir)
+    
+    if has_mono_priors:
+        print("Found monocular priors directory, loading depth and normal priors...")
+    
     for idx, key in enumerate(cam_extrinsics):
         sys.stdout.write('\r')
         # the exact output you're looking for:
@@ -98,11 +111,24 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder):
         image_name = os.path.basename(image_path).split(".")[0]
         image = Image.open(image_path)
 
+        # Load monocular priors if available
+        mono_depth = None
+        mono_normal = None
+        if has_mono_priors:
+            depth_path = os.path.join(mono_depth_dir, f"{image_name}.npy")
+            normal_path = os.path.join(mono_normal_dir, f"{image_name}.npy")
+            if os.path.exists(depth_path):
+                mono_depth = np.load(depth_path)
+            if os.path.exists(normal_path):
+                mono_normal = np.load(normal_path)
+
         cam_info = CameraInfo(uid=uid, R=R, T=T, FovY=FovY, FovX=FovX, image=image,
-                              image_path=image_path, image_name=image_name, width=width, height=height)
+                              image_path=image_path, image_name=image_name, width=width, height=height,
+                              mono_depth=mono_depth, mono_normal=mono_normal)
         cam_infos.append(cam_info)
     sys.stdout.write('\n')
     return cam_infos
+
 
 def fetchPly(path):
     plydata = PlyData.read(path)

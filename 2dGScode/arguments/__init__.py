@@ -92,7 +92,17 @@ class OptimizationParams(ParamGroup):
         self.densify_from_iter = 500
         self.densify_until_iter = 15_000
         self.densify_grad_threshold = 0.0002
+        
+        # Monocular prior losses (Task 4)
+        self.lambda_mono_depth = 0.0  # Weight for monocular depth loss
+        self.lambda_mono_normal = 0.0  # Weight for monocular normal loss
+        
+        # Depth reinitialization (Task 2) - Mini-Splatting strategy
+        self.depth_reinit_iters = []  # List of iterations to reinitialize (e.g., [2000, 5000, 10000])
+        self.reinit_target_points = 3_500_000  # Target total points for reinitialization (3.5M default)
+        
         super().__init__(parser, "Optimization Parameters")
+
 
 def get_combined_args(parser : ArgumentParser):
     cmdlne_string = sys.argv[1:]
