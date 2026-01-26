@@ -11,6 +11,7 @@
 
 import os
 import torch
+import math
 from random import randint
 from utils.loss_utils import l1_loss, ssim, scale_invariant_depth_loss, mono_normal_loss
 from gaussian_renderer import render, network_gui
@@ -28,7 +29,15 @@ try:
 except ImportError:
     TENSORBOARD_FOUND = False
 
-def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint):
+
+def get_mono_prior_decay(iteration, end_step):
+    """Exponential decay for monocular priors (MonoSDF style)."""
+    if end_step > 0:
+        return math.exp(-iteration / end_step * 10.0)
+    return 1.0
+
+
+def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint, debug_from):
     first_iter = 0
     tb_writer = prepare_output_and_logger(dataset)
     gaussians = GaussianModel(dataset.sh_degree)
@@ -84,23 +93,30 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         normal_loss = lambda_normal * (normal_error).mean()
         dist_loss = lambda_dist * (rend_dist).mean()
 
-        # Monocular prior losses (Task 4)
+        # Monocular prior losses (Task 4) - MonoSDF style with exponential decay
         mono_depth_loss = torch.tensor(0.0, device="cuda")
-        mono_normal_loss_val = torch.tensor(0.0, device="cuda")
+        mono_normal_l1_loss = torch.tensor(0.0, device="cuda")
+        mono_normal_cos_loss = torch.tensor(0.0, device="cuda")
+        
+        # Compute exponential decay for monocular priors
+        decay = get_mono_prior_decay(iteration, opt.mono_prior_decay_end)
         
         if opt.lambda_mono_depth > 0 and viewpoint_cam.mono_depth is not None:
             surf_depth = render_pkg['surf_depth']
-            mono_depth_loss = opt.lambda_mono_depth * scale_invariant_depth_loss(
-                surf_depth, viewpoint_cam.mono_depth
+            mono_depth_loss = decay * opt.lambda_mono_depth * scale_invariant_depth_loss(
+                surf_depth, viewpoint_cam.mono_depth, alpha=0.5
             )
         
-        if opt.lambda_mono_normal > 0 and viewpoint_cam.mono_normal is not None:
-            mono_normal_loss_val = opt.lambda_mono_normal * mono_normal_loss(
+        if (opt.lambda_mono_normal_l1 > 0 or opt.lambda_mono_normal_cos > 0) and viewpoint_cam.mono_normal is not None:
+            # Returns separate L1 and cosine losses
+            normal_l1, normal_cos = mono_normal_loss(
                 rend_normal, viewpoint_cam.mono_normal
             )
+            mono_normal_l1_loss = decay * opt.lambda_mono_normal_l1 * normal_l1
+            mono_normal_cos_loss = decay * opt.lambda_mono_normal_cos * normal_cos
 
         # loss
-        total_loss = loss + dist_loss + normal_loss + mono_depth_loss + mono_normal_loss_val
+        total_loss = loss + dist_loss + normal_loss + mono_depth_loss + mono_normal_l1_loss + mono_normal_cos_loss
         
         total_loss.backward()
 

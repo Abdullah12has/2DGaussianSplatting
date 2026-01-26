@@ -93,9 +93,11 @@ class OptimizationParams(ParamGroup):
         self.densify_until_iter = 15_000
         self.densify_grad_threshold = 0.0002
         
-        # Monocular prior losses (Task 4)
-        self.lambda_mono_depth = 0.0  # Weight for monocular depth loss
-        self.lambda_mono_normal = 0.0  # Weight for monocular normal loss
+        # Monocular prior losses (Task 4) - MonoSDF style
+        self.lambda_mono_depth = 0.1  # Weight for monocular depth loss (MonoSDF default)
+        self.lambda_mono_normal_l1 = 0.05  # Weight for normal L1 loss (MonoSDF default)
+        self.lambda_mono_normal_cos = 0.05  # Weight for normal cosine loss (MonoSDF default)
+        self.mono_prior_decay_end = 15000  # End step for exponential decay (MonoSDF uses decay)
         
         # Depth reinitialization (Task 2) - Mini-Splatting strategy
         self.depth_reinit_iters = []  # List of iterations to reinitialize (e.g., [2000, 5000, 10000])
