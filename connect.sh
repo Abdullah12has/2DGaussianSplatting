@@ -1,3 +1,12 @@
 #!/bin/bash
-sshfs -o allow_other,ssh_command='ssh -4' koubaa@ml3d.vc.in.tum.de:/cluster/51/koubaa/mahdi/2DGaussianSplatting .
-ssh koubaa@ml3d.vc.in.tum.de  -t 'cd /cluster/51/koubaa/mahdi/2DGaussianSplatting && salloc --gpus=1'sa
+
+# SSH key path
+KEY_FILE="$(dirname "$0")/key"
+
+# Set correct permissions on key
+chmod 600 "$KEY_FILE"
+
+# SSH into server and allocate GPU
+echo "Connecting to ml3d.vc.in.tum.de..."
+ssh -i "$KEY_FILE" koubaa@ml3d.vc.in.tum.de -t \
+    'cd /cluster/51/koubaa/abdullah/2DGaussianSplatting && salloc --gpus=1'
