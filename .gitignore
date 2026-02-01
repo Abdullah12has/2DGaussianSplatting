@@ -212,3 +212,6 @@ data
 *.pub
 key
 *.pdf
+
+
+output/
