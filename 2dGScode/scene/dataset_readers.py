@@ -240,6 +240,9 @@ def readCamerasFromTransforms(path, transformsfile, white_background, extension=
             else:
                 # File path needs extension added (e.g., "r_0" -> "r_0.png")
                 cam_name = file_path + extension
+            
+            # Construct full path
+            full_image_path = os.path.join(path, cam_name)
 
             # NeRF 'transform_matrix' is a camera-to-world transform
             c2w = np.array(frame["transform_matrix"])
@@ -251,9 +254,9 @@ def readCamerasFromTransforms(path, transformsfile, white_background, extension=
             R = np.transpose(w2c[:3,:3])  # R is stored transposed due to 'glm' in CUDA code
             T = w2c[:3, 3]
 
-            image_path = cam_name
+            image_path = full_image_path
             image_name = Path(cam_name).stem
-            image = Image.open(image_path)
+            image = Image.open(full_image_path)
 
             # Handle alpha channel if present
             if image.mode == "RGBA":
