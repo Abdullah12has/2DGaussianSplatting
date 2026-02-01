@@ -1,0 +1,71 @@
+
+---
+events:
+  -
+    kind: "find-v1"
+    backtrace:
+      - "/rhome/koubaa/cmake-4.2.2-linux-x86_64/share/cmake-4.2/Modules/CMakeDetermineSystem.cmake:12 (find_program)"
+      - "CMakeLists.txt:16 (project)"
+    mode: "program"
+    variable: "CMAKE_UNAME"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: true
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "uname"
+    candidate_directories:
+      - "/rhome/koubaa/cmake-4.2.2-linux-x86_64/bin/"
+      - "/usr/local/cuda-12.8/bin/"
+      - "/cluster/51/koubaa/miniconda3/envs/ml3d/bin/"
+      - "/cluster/51/koubaa/miniconda3/condabin/"
+      - "/usr/local/sbin/"
+      - "/usr/local/bin/"
+      - "/usr/sbin/"
+      - "/usr/bin/"
+      - "/sbin/"
+      - "/bin/"
+      - "/usr/games/"
+      - "/usr/local/games/"
+      - "/snap/bin/"
+    searched_directories:
+      - "/rhome/koubaa/cmake-4.2.2-linux-x86_64/bin/uname"
+      - "/usr/local/cuda-12.8/bin/uname"
+      - "/cluster/51/koubaa/miniconda3/envs/ml3d/bin/uname"
+      - "/cluster/51/koubaa/miniconda3/condabin/uname"
+      - "/usr/local/sbin/uname"
+      - "/usr/local/bin/uname"
+      - "/usr/sbin/uname"
+    found: "/usr/bin/uname"
+    search_context:
+      ENV{PATH}:
+        - "/rhome/koubaa/cmake-4.2.2-linux-x86_64/bin"
+        - "/usr/local/cuda-12.8/bin"
+        - "/cluster/51/koubaa/miniconda3/envs/ml3d/bin"
+        - "/rhome/koubaa/cmake-4.2.2-linux-x86_64/bin"
+        - "/usr/local/cuda-12.8/bin"
+        - "/usr/local/cuda-12.8/bin"
+        - "/cluster/51/koubaa/miniconda3/condabin"
+        - "/usr/local/cuda-12.8/bin"
+        - "/usr/local/sbin"
+        - "/usr/local/bin"
+        - "/usr/sbin"
+        - "/usr/bin"
+        - "/sbin"
+        - "/bin"
+        - "/usr/games"
+        - "/usr/local/games"
+        - "/snap/bin"
+  -
+    kind: "message-v1"
+    backtrace:
+      - "/rhome/koubaa/cmake-4.2.2-linux-x86_64/share/cmake-4.2/Modules/CMakeDetermineSystem.cmake:212 (message)"
+      - "CMakeLists.txt:16 (project)"
+    message: |
+      The system is: Linux - 5.15.0-92-generic - x86_64
+...
