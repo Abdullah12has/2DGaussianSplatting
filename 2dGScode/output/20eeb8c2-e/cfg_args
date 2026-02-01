@@ -1,0 +1,1 @@
+Namespace(sh_degree=3, source_path='/home/isiktan/ml_in_3d_geometry/project/2DGaussianSplatting/2dGScode/DTU/scan24', model_path='./output/20eeb8c2-e', images='images', resolution=-1, white_background=False, data_device='cuda', eval=False, render_items=['RGB', 'Alpha', 'Normal', 'Depth', 'Edge', 'Curvature'])
