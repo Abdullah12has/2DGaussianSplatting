@@ -101,16 +101,23 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         # Compute exponential decay for monocular priors
         decay = get_mono_prior_decay(iteration, opt.mono_prior_decay_end)
         
+        # Create validity mask based on rendering alpha (MonoSDF style)
+        # Only supervise pixels with high rendering confidence
+        rend_alpha = render_pkg.get('rend_alpha')
+        valid_mask = None
+        if rend_alpha is not None:
+            valid_mask = (rend_alpha > 0.5).squeeze(0).float()  # [H, W]
+        
         if opt.lambda_mono_depth > 0 and viewpoint_cam.mono_depth is not None:
             surf_depth = render_pkg['surf_depth']
             mono_depth_loss = decay * opt.lambda_mono_depth * scale_invariant_depth_loss(
-                surf_depth, viewpoint_cam.mono_depth, alpha=0.5
+                surf_depth, viewpoint_cam.mono_depth, mask=valid_mask, alpha=0.5
             )
         
         if (opt.lambda_mono_normal_l1 > 0 or opt.lambda_mono_normal_cos > 0) and viewpoint_cam.mono_normal is not None:
             # Returns separate L1 and cosine losses
             normal_l1, normal_cos = mono_normal_loss(
-                rend_normal, viewpoint_cam.mono_normal
+                rend_normal, viewpoint_cam.mono_normal, mask=valid_mask
             )
             mono_normal_l1_loss = decay * opt.lambda_mono_normal_l1 * normal_l1
             mono_normal_cos_loss = decay * opt.lambda_mono_normal_cos * normal_cos
@@ -146,6 +153,13 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             if tb_writer is not None:
                 tb_writer.add_scalar('train_loss_patches/dist_loss', ema_dist_for_log, iteration)
                 tb_writer.add_scalar('train_loss_patches/normal_loss', ema_normal_for_log, iteration)
+                # MonoSDF-style monocular prior losses
+                if mono_depth_loss.item() > 0:
+                    tb_writer.add_scalar('train_loss_patches/mono_depth_loss', mono_depth_loss.item(), iteration)
+                if mono_normal_l1_loss.item() > 0:
+                    tb_writer.add_scalar('train_loss_patches/mono_normal_l1_loss', mono_normal_l1_loss.item(), iteration)
+                if mono_normal_cos_loss.item() > 0:
+                    tb_writer.add_scalar('train_loss_patches/mono_normal_cos_loss', mono_normal_cos_loss.item(), iteration)
 
             training_report(tb_writer, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), testing_iterations, scene, render, (pipe, background))
             if (iteration in saving_iterations):

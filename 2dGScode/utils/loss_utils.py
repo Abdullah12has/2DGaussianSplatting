@@ -199,8 +199,8 @@ def scale_invariant_depth_loss(pred_depth, mono_depth, mask=None, alpha=0.5):
         # Apply scale-shift to full 2D depth map for gradient computation
         pred_aligned_2d = w * pred_depth + q
         
-        # Compute gradient loss
-        grad_loss = gradient_loss(pred_aligned_2d, mono_depth, mask, scales=1)
+        # Compute gradient loss (MonoSDF uses 4 scales for multi-resolution supervision)
+        grad_loss = gradient_loss(pred_aligned_2d, mono_depth, mask, scales=4)
         
         total_loss = mse_loss + alpha * grad_loss
     else:
