@@ -1,7 +1,7 @@
 import sys
 from scene import Scene, GaussianModel
 from argparse import ArgumentParser
-from arguments import ModelParams, PipelineParams
+from arguments import ModelParams, PipelineParams, get_combined_args
 from gaussian_renderer import render, network_gui
 from utils.image_utils import render_net_image
 import torch
@@ -38,12 +38,12 @@ if __name__ == "__main__":
 
     # Set up command line argument parser
     parser = ArgumentParser(description="Exporting script parameters")
-    lp = ModelParams(parser)
+    lp = ModelParams(parser, sentinel=True)
     pp = PipelineParams(parser)
     parser.add_argument('--ip', type=str, default="127.0.0.1")
     parser.add_argument('--port', type=int, default=6009)
     parser.add_argument('--iteration', type=int, default=30000)
-    args = parser.parse_args(sys.argv[1:])
+    args = get_combined_args(parser)
     print("View: " + args.model_path)
     network_gui.init(args.ip, args.port)
     

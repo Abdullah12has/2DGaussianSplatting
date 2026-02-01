@@ -22,9 +22,14 @@ from tqdm import tqdm
 from utils.image_utils import psnr, render_net_image
 from argparse import ArgumentParser, Namespace
 from arguments import ModelParams, PipelineParams, OptimizationParams
+from scene.gaussian_model import build_scaling_rotation
 from torch.utils.tensorboard import SummaryWriter
 
 def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint):
+    # MCMC requires cap_max to be set
+    if dataset.cap_max == -1:
+        print("Please specify the maximum number of Gaussians using --cap_max.")
+        exit()
     first_iter = 0
     tb_writer = prepare_output_and_logger(dataset)
     gaussians = GaussianModel(dataset.sh_degree)
@@ -51,7 +56,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
         iter_start.record()
 
-        gaussians.update_learning_rate(iteration)
+        xyz_lr = gaussians.update_learning_rate(iteration)
 
         # Every 1000 its we increase the levels of SH up to a maximum degree
         if iteration % 1000 == 0:
@@ -80,8 +85,12 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         normal_loss = lambda_normal * (normal_error).mean()
         dist_loss = lambda_dist * (rend_dist).mean()
 
+        # MCMC regularization losses
+        opacity_reg_loss = opt.opacity_reg * torch.abs(gaussians.get_opacity).mean()
+        scale_reg_loss = opt.scale_reg * torch.abs(gaussians.get_scaling).mean()
+
         # loss
-        total_loss = loss + dist_loss + normal_loss
+        total_loss = loss + dist_loss + normal_loss + opacity_reg_loss + scale_reg_loss
         
         total_loss.backward()
 
@@ -118,22 +127,31 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                 scene.save(iteration)
 
 
-            # Densification
-            if iteration < opt.densify_until_iter:
-                gaussians.max_radii2D[visibility_filter] = torch.max(gaussians.max_radii2D[visibility_filter], radii[visibility_filter])
-                gaussians.add_densification_stats(viewspace_point_tensor, visibility_filter)
-
-                if iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0:
-                    size_threshold = 20 if iteration > opt.opacity_reset_interval else None
-                    gaussians.densify_and_prune(opt.densify_grad_threshold, opt.opacity_cull, scene.cameras_extent, size_threshold)
-                
-                if iteration % opt.opacity_reset_interval == 0 or (dataset.white_background and iteration == opt.densify_from_iter):
-                    gaussians.reset_opacity()
+            # MCMC Densification: relocate dead Gaussians and add new ones
+            if iteration < opt.densify_until_iter and iteration > opt.densify_from_iter:
+                if iteration % opt.densification_interval == 0:
+                    dead_mask = (gaussians.get_opacity <= 0.005).squeeze(-1)
+                    gaussians.relocate_gs(dead_mask=dead_mask)
+                    gaussians.add_new_gs(cap_max=dataset.cap_max)
 
             # Optimizer step
             if iteration < opt.iterations:
                 gaussians.optimizer.step()
                 gaussians.optimizer.zero_grad(set_to_none = True)
+
+                # SGLD noise injection for MCMC exploration
+                L = build_scaling_rotation(
+                    torch.cat([gaussians.get_scaling, torch.ones_like(gaussians.get_scaling[:, :1])], dim=-1),
+                    gaussians.get_rotation
+                )
+                actual_covariance = L @ L.transpose(1, 2)
+
+                def op_sigmoid(x, k=100, x0=0.995):
+                    return 1 / (1 + torch.exp(-k * (x - x0)))
+                
+                noise = torch.randn_like(gaussians._xyz) * op_sigmoid(1 - gaussians.get_opacity) * opt.noise_lr * xyz_lr
+                noise = torch.bmm(actual_covariance, noise.unsqueeze(-1)).squeeze(-1)
+                gaussians._xyz.add_(noise)
 
             if (iteration in checkpoint_iterations):
                 print("\n[ITER {}] Saving Checkpoint".format(iteration))

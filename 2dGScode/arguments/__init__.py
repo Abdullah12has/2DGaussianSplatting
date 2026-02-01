@@ -47,6 +47,7 @@ class ParamGroup:
 class ModelParams(ParamGroup): 
     def __init__(self, parser, sentinel=False):
         self.sh_degree = 3
+        self.cap_max = -1  # Maximum number of Gaussians (required for MCMC)
         self._source_path = ""
         self._model_path = ""
         self._images = "images"
@@ -92,6 +93,10 @@ class OptimizationParams(ParamGroup):
         self.densify_from_iter = 500
         self.densify_until_iter = 15_000
         self.densify_grad_threshold = 0.0002
+        # MCMC parameters
+        self.noise_lr = 5e5        # SGLD noise learning rate
+        self.scale_reg = 0.01      # L1 regularization on scale
+        self.opacity_reg = 0.01    # L1 regularization on opacity
         super().__init__(parser, "Optimization Parameters")
 
 def get_combined_args(parser : ArgumentParser):
