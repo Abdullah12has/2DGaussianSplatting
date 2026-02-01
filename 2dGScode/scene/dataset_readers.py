@@ -232,10 +232,14 @@ def readCamerasFromTransforms(path, transformsfile, white_background, extension=
         for idx, frame in enumerate(frames):
             # Handle different file_path formats
             file_path = frame["file_path"]
-            if extension in file_path:
-                cam_name = os.path.join(path, file_path)
+            # Check if file already has an extension (for Nerfstudio format)
+            has_extension = os.path.splitext(file_path)[1] != ''
+            if has_extension:
+                # File path already includes extension (e.g., "DSC01471.JPG")
+                cam_name = file_path
             else:
-                cam_name = os.path.join(path, file_path + extension)
+                # File path needs extension added (e.g., "r_0" -> "r_0.png")
+                cam_name = file_path + extension
 
             # NeRF 'transform_matrix' is a camera-to-world transform
             c2w = np.array(frame["transform_matrix"])
