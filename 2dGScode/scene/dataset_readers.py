@@ -202,8 +202,14 @@ def readColmapSceneInfo(path, images, eval, llffhold=8):
                            ply_path=ply_path)
     return scene_info
 
-def readCamerasFromTransforms(path, transformsfile, white_background, extension=".png"):
+def readCamerasFromTransforms(path, transformsfile, white_background, extension=".png", images_folder=None):
     cam_infos = []
+    
+    # Determine where to look for images
+    if images_folder is not None:
+        image_base_path = os.path.join(path, images_folder)
+    else:
+        image_base_path = path
 
     with open(os.path.join(path, transformsfile)) as json_file:
         contents = json.load(json_file)
@@ -241,8 +247,10 @@ def readCamerasFromTransforms(path, transformsfile, white_background, extension=
                 # File path needs extension added (e.g., "r_0" -> "r_0.png")
                 cam_name = file_path + extension
             
-            # Construct full path
-            full_image_path = os.path.join(path, cam_name)
+            # Construct full path - use image_base_path which may be a subdirectory
+            # For Nerfstudio format, file_path is just the filename (e.g., "DSC01471.JPG")
+            image_filename = os.path.basename(cam_name)
+            full_image_path = os.path.join(image_base_path, image_filename)
 
             # NeRF 'transform_matrix' is a camera-to-world transform
             c2w = np.array(frame["transform_matrix"])
@@ -284,11 +292,15 @@ def readCamerasFromTransforms(path, transformsfile, white_background, extension=
             
     return cam_infos
 
-def readNerfSyntheticInfo(path, white_background, eval, extension=".png"):
+def readNerfSyntheticInfo(path, white_background, eval, extension=".png", images_folder=None):
     print("Reading Training Transforms")
-    train_cam_infos = readCamerasFromTransforms(path, "transforms_train.json", white_background, extension)
+    train_cam_infos = readCamerasFromTransforms(path, "transforms_train.json", white_background, extension, images_folder)
     print("Reading Test Transforms")
-    test_cam_infos = readCamerasFromTransforms(path, "transforms_test.json", white_background, extension)
+    try:
+        test_cam_infos = readCamerasFromTransforms(path, "transforms_test.json", white_background, extension, images_folder)
+    except FileNotFoundError:
+        print("No transforms_test.json found, using empty test set")
+        test_cam_infos = []
     
     if not eval:
         train_cam_infos.extend(test_cam_infos)
