@@ -62,7 +62,7 @@ def unproject_depth_to_points(
     
     # Apply rotation and translation
     R = cam_to_world[:3, :3]
-    t = cam_to_world[3, :3]
+    t = cam_to_world[:3, 3]
     
     points_world = points_cam_flat @ R.T + t
     
@@ -144,7 +144,7 @@ def sample_points_from_depth(
     # Transform to world
     cam_to_world = torch.inverse(camera.world_view_transform)
     R = cam_to_world[:3, :3]
-    t = cam_to_world[3, :3]
+    t = cam_to_world[:3, 3]
     
     points_world = points_cam @ R.T + t
     
@@ -256,7 +256,7 @@ def aggregate_depth_points(
             # Transform to world
             cam_to_world = torch.inverse(camera.world_view_transform)
             R = cam_to_world[:3, :3]
-            t = cam_to_world[3, :3]
+            t = cam_to_world[:3, 3]
             
             points_world = points_cam @ R.T + t
             
