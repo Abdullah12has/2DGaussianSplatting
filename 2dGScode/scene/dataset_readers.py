@@ -217,16 +217,18 @@ def readCamerasFromTransforms(path, transformsfile, white_background, extension=
                             image_path=image_path, image_name=image_name, width=image.size[0], height=image.size[1]))
             
     return cam_infos
-def readCamerasFromTransforms1(path, transformsfile, white_background, frame_entry="frames"):
+def readCamerasFromTransforms1(path, transforms_file, white_background, image_subdir, every_n_frame=1, frame_entry="frames", test=False):
     cam_infos = []
 
-    with open(os.path.join(path, transformsfile)) as json_file:
+    with open(os.path.join(path, transforms_file)) as json_file:
         contents = json.load(json_file)
         fl_x = contents["fl_x"]
         fl_y = contents["fl_y"]
         frames = contents[frame_entry]
+        frames = frames[::every_n_frame]
+        print("Number of {} frames: {}".format("test" if test else "train", len(frames)))
         for idx, frame in enumerate(frames):
-            cam_name = os.path.join(path,"resized_undistorted_images", frame["file_path"])
+            cam_name = os.path.join(path,image_subdir, frame["file_path"])
 
             # NeRF 'transform_matrix' is a camera-to-world transform
             c2w = np.array(frame["transform_matrix"])
@@ -259,31 +261,31 @@ def readCamerasFromTransforms1(path, transformsfile, white_background, frame_ent
                             image_path=image_path, image_name=image_name, width=image.size[0], height=image.size[1]))
             
     return cam_infos
-def readNerfSyntheticInfo(path, white_background, eval, extension=".png"):
+def readNerfSyntheticInfo(args, extension=".png"):
     print("Reading Training Transforms")
     try: 
-        train_cam_infos = readCamerasFromTransforms(path, "transforms_train.json", white_background, extension)
+        train_cam_infos = readCamerasFromTransforms(args.source_path, "transforms_train.json", args.white_background, extension)
     except:
-        train_cam_infos = readCamerasFromTransforms1(path, "nerfstudio/transforms_undistorted.json", white_background,frame_entry="frames")
+        train_cam_infos = readCamerasFromTransforms1(args.source_path, args.train_transforms_file, args.white_background, args.images, every_n_frame=args.every_n_frame, frame_entry=args.train_frame_entry, test=False)
     print("Reading Test Transforms")
     try:
-        test_cam_infos = readCamerasFromTransforms(path, "transforms_test.json", white_background, extension)
+        test_cam_infos = readCamerasFromTransforms(args.source_path, "transforms_test.json", args.white_background, extension)
     except:
-        test_cam_infos = readCamerasFromTransforms1(path, "nerfstudio/transforms_undistorted.json", white_background,frame_entry="test_frames")
+        test_cam_infos = readCamerasFromTransforms1(args.source_path, args.test_transforms_file, args.white_background, args.test_images, every_n_frame=args.every_n_frame, frame_entry=args.test_frame_entry, test=True)
     
-    if not eval:
+    if not args.eval:
         train_cam_infos.extend(test_cam_infos)
         test_cam_infos = []
 
     nerf_normalization = getNerfppNorm(train_cam_infos)
-    if os.path.exists(os.path.join(path, "colmap")):
-        ply_path = os.path.join(path, "colmap/points3D.ply")
-        bin_path = os.path.join(path, "colmap/points3D.bin")
-        txt_path = os.path.join(path, "colmap/points3D.txt")
+    if os.path.exists(os.path.join(args.source_path, "colmap")):
+        ply_path = os.path.join(args.source_path, "colmap/points3D.ply")
+        bin_path = os.path.join(args.source_path, "colmap/points3D.bin")
+        txt_path = os.path.join(args.source_path, "colmap/points3D.txt")
     else:
-        ply_path = os.path.join(path, "sparse/0/points3D.ply")
-        bin_path = os.path.join(path, "sparse/0/points3D.bin")
-        txt_path = os.path.join(path, "sparse/0/points3D.txt")
+        ply_path = os.path.join(args.source_path, "sparse/0/points3D.ply")
+        bin_path = os.path.join(args.source_path, "sparse/0/points3D.bin")
+        txt_path = os.path.join(args.source_path, "sparse/0/points3D.txt")
 
     if not os.path.exists(ply_path) and not os.path.exists(bin_path) and not os.path.exists(txt_path):
         # Since this data set has no colmap data, we start with random points

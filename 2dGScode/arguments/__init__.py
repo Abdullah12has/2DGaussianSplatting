@@ -47,11 +47,18 @@ class ParamGroup:
 class ModelParams(ParamGroup): 
     def __init__(self, parser, sentinel=False):
         self.sh_degree = 3
-        self._source_path = ""
-        self._model_path = ""
-        self._images = "images"
-        self._resolution = -1
-        self._white_background = False
+        self.source_path = ""
+        self.test_transforms_file = "transforms_train.json"
+        self.train_transforms_file = "transforms_train.json"
+        self.use_exposure_optimization = False
+        self.every_n_frame = 1
+        self.test_frame_entry="test_frames"
+        self.train_frame_entry="frames"
+        self.model_path = ""
+        self.images = "images"
+        self.test_images = "images"
+        self.resolution = -1
+        self.white_background = False
         self.data_device = "cuda"
         self.eval = False
         self.render_items = ['RGB', 'Alpha', 'Normal', 'Depth', 'Edge', 'Curvature']
@@ -81,11 +88,16 @@ class OptimizationParams(ParamGroup):
         self.opacity_lr = 0.05
         self.scaling_lr = 0.005
         self.rotation_lr = 0.001
+        self.exposure_lr_init = 0.001
+        self.exposure_lr_final = 0.0001
+        self.exposure_lr_delay_steps = 5000
+        self.exposure_lr_delay_mult = 0.001
         self.percent_dense = 0.01
         self.lambda_dssim = 0.2
-        self.lambda_dist = 0.0
+        self.lambda_dist = 1
         self.lambda_normal = 0.05
         self.opacity_cull = 0.05
+        self.use_exposure_optimization = False
 
         self.densification_interval = 100
         self.opacity_reset_interval = 3000
