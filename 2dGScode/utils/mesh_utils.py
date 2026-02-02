@@ -9,6 +9,7 @@
 # For inquiries contact  huangbb@shanghaitech.edu.cn
 #
 
+import gc
 import torch
 import numpy as np
 import os
@@ -137,7 +138,7 @@ class GaussianExtractor(object):
         print(f"Use at least {2.0 * self.radius:.2f} for depth_trunc")
 
     @torch.no_grad()
-    def extract_mesh_bounded(self, voxel_size=0.004, sdf_trunc=0.02, depth_trunc=3, mask_backgrond=True):
+    def extract_mesh_bounded(self, voxel_size=0.008, sdf_trunc=0.02, depth_trunc=3, mask_backgrond=True):
         """
         Perform TSDF fusion given a fixed depth range, used in the paper.
         
@@ -176,6 +177,8 @@ class GaussianExtractor(object):
             )
 
             volume.integrate(rgbd, intrinsic=cam_o3d.intrinsic, extrinsic=cam_o3d.extrinsic)
+            
+           
 
         mesh = volume.extract_triangle_mesh()
         return mesh
