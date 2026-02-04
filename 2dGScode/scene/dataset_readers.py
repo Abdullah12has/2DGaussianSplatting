@@ -86,18 +86,17 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder):
             focal_length_x = intr.params[0]
             FovY = focal2fov(focal_length_x, height)
             FovX = focal2fov(focal_length_x, width)
-        elif intr.model=="PINHOLE":
+        else: #elif intr.model=="PINHOLE":
             focal_length_x = intr.params[0]
             focal_length_y = intr.params[1]
             FovY = focal2fov(focal_length_y, height)
             FovX = focal2fov(focal_length_x, width)
-        else:
-            assert False, "Colmap camera model not handled: only undistorted datasets (PINHOLE or SIMPLE_PINHOLE cameras) supported!"
+#        else:
+#            assert False, "Colmap camera model not handled: only undistorted datasets (PINHOLE or SIMPLE_PINHOLE cameras) supported!"
 
         image_path = os.path.join(images_folder, os.path.basename(extr.name))
         image_name = os.path.basename(image_path).split(".")[0]
         image = Image.open(image_path)
-
         cam_info = CameraInfo(uid=uid, R=R, T=T, FovY=FovY, FovX=FovX, image=image,
                               image_path=image_path, image_name=image_name, width=width, height=height)
         cam_infos.append(cam_info)
@@ -129,22 +128,21 @@ def storePly(path, xyz, rgb):
     ply_data = PlyData([vertex_element])
     ply_data.write(path)
 
-def readColmapSceneInfo(path, images, eval, llffhold=8):
+def readColmapSceneInfo(path, images, eval, llffhold=8, colmap_folder="colmap"):
     try:
-        cameras_extrinsic_file = os.path.join(path, "sparse/0", "images.bin")
-        cameras_intrinsic_file = os.path.join(path, "sparse/0", "cameras.bin")
+        cameras_extrinsic_file = os.path.join(path, colmap_folder, "images.bin")
+        cameras_intrinsic_file = os.path.join(path, colmap_folder, "cameras.bin")
         cam_extrinsics = read_extrinsics_binary(cameras_extrinsic_file)
         cam_intrinsics = read_intrinsics_binary(cameras_intrinsic_file)
     except:
-        cameras_extrinsic_file = os.path.join(path, "sparse/0", "images.txt")
-        cameras_intrinsic_file = os.path.join(path, "sparse/0", "cameras.txt")
+        cameras_extrinsic_file = os.path.join(path, colmap_folder, "images.txt")
+        cameras_intrinsic_file = os.path.join(path, colmap_folder, "cameras.txt")
         cam_extrinsics = read_extrinsics_text(cameras_extrinsic_file)
         cam_intrinsics = read_intrinsics_text(cameras_intrinsic_file)
 
     reading_dir = "images" if images == None else images
     cam_infos_unsorted = readColmapCameras(cam_extrinsics=cam_extrinsics, cam_intrinsics=cam_intrinsics, images_folder=os.path.join(path, reading_dir))
     cam_infos = sorted(cam_infos_unsorted.copy(), key = lambda x : x.image_name)
-
     if eval:
         train_cam_infos = [c for idx, c in enumerate(cam_infos) if idx % llffhold != 0]
         test_cam_infos = [c for idx, c in enumerate(cam_infos) if idx % llffhold == 0]
@@ -154,9 +152,9 @@ def readColmapSceneInfo(path, images, eval, llffhold=8):
 
     nerf_normalization = getNerfppNorm(train_cam_infos)
 
-    ply_path = os.path.join(path, "sparse/0/points3D.ply")
-    bin_path = os.path.join(path, "sparse/0/points3D.bin")
-    txt_path = os.path.join(path, "sparse/0/points3D.txt")
+    ply_path = os.path.join(path, colmap_folder, "points3D.ply")
+    bin_path = os.path.join(path, colmap_folder, "points3D.bin")
+    txt_path = os.path.join(path, colmap_folder, "points3D.txt")
     if not os.path.exists(ply_path):
         print("Converting point3d.bin to .ply, will happen only the first time you open the scene.")
         try:
@@ -238,8 +236,9 @@ def readCamerasFromTransforms1(path, transforms_file, white_background, image_su
             # get the world-to-camera transform and set R, T
             w2c = np.linalg.inv(c2w)
             R = np.transpose(w2c[:3,:3])  # R is stored transposed due to 'glm' in CUDA code
+            R[1], R[0] = R[0], R[1].copy()  # swap back the first two rows
+            R[2] *= -1
             T = w2c[:3, 3]
-
             image_path = os.path.join(path, cam_name)
             image_name = Path(cam_name).stem
             image = Image.open(image_path)
@@ -271,17 +270,17 @@ def readNerfSyntheticInfo(args, extension=".png"):
     try:
         test_cam_infos = readCamerasFromTransforms(args.source_path, "transforms_test.json", args.white_background, extension)
     except:
-        test_cam_infos = readCamerasFromTransforms1(args.source_path, args.test_transforms_file, args.white_background, args.test_images, every_n_frame=args.every_n_frame, frame_entry=args.test_frame_entry, test=True)
+        test_cam_infos = readCamerasFromTransforms1(args.source_path, args.test_transforms_file, args.white_background, args.test_images, every_n_frame=1, frame_entry=args.test_frame_entry, test=True)
     
     if not args.eval:
         train_cam_infos.extend(test_cam_infos)
         test_cam_infos = []
 
     nerf_normalization = getNerfppNorm(train_cam_infos)
-    if os.path.exists(os.path.join(args.source_path, "colmap")):
-        ply_path = os.path.join(args.source_path, "colmap/points3D.ply")
-        bin_path = os.path.join(args.source_path, "colmap/points3D.bin")
-        txt_path = os.path.join(args.source_path, "colmap/points3D.txt")
+    if os.path.exists(os.path.join(args.source_path, args.colmap_folder)):
+        ply_path = os.path.join(args.source_path, args.colmap_folder, "points3D.ply")
+        bin_path = os.path.join(args.source_path, args.colmap_folder, "points3D.bin")
+        txt_path = os.path.join(args.source_path, args.colmap_folder, "points3D.txt")
     else:
         ply_path = os.path.join(args.source_path, "sparse/0/points3D.ply")
         bin_path = os.path.join(args.source_path, "sparse/0/points3D.bin")

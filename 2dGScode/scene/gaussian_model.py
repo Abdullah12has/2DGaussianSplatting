@@ -158,6 +158,7 @@ class GaussianModel:
         exposure = torch.eye(3, 4, device="cuda")[None].repeat(len(cam_infos), 1, 1)
         self._exposure_mapping = {cam_info.image_name: idx for idx, cam_info in enumerate(cam_infos)}
         self._exposure = nn.Parameter(exposure.requires_grad_(True))
+        print('initialized exposure for {} images'.format(len(cam_infos)))
 
     def training_setup(self, training_args, opt_dict=None):
         self.percent_dense = training_args.percent_dense

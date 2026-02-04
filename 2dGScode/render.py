@@ -20,15 +20,16 @@ from utils.general_utils import safe_state
 from argparse import ArgumentParser
 from arguments import ModelParams, PipelineParams, get_combined_args
 from gaussian_renderer import GaussianModel
-from utils.mesh_utils import GaussianExtractor, to_cam_open3d, post_process_mesh
+from utils.mesh_utils import GaussianExtractor, to_cam_open3d, post_process_mesh, cull_mesh, compute_chamfer_distance
 from utils.render_utils import generate_path, create_videos
 
 import open3d as o3d
+import json
 
 if __name__ == "__main__":
     # Set up command line argument parser
     parser = ArgumentParser(description="Testing script parameters")
-    model = ModelParams(parser, sentinel=True)
+    model = ModelParams(parser, sentinel=False)
     pipeline = PipelineParams(parser)
     parser.add_argument("--iteration", default=-1, type=int)
     parser.add_argument("--skip_train", action="store_true")
@@ -42,11 +43,13 @@ if __name__ == "__main__":
     parser.add_argument("--num_cluster", default=50, type=int, help='Mesh: number of connected clusters to export')
     parser.add_argument("--unbounded", action="store_true", help='Mesh: using unbounded mode for meshing')
     parser.add_argument("--mesh_res", default=1024, type=int, help='Mesh: resolution for unbounded mesh extraction')
-
+    parser.add_argument('--masks', type=str, help='path to the masks for culling')
+    parser.add_argument('--cull_mesh', action="store_true", help='whether to cull the mesh using the masks')
+    parser.add_argument('--compute_chamfer', action="store_true", help='whether to compute chamfer distance with ground truth mesh')
+    parser.add_argument('--num_points', default=100000, type=int, help='number of points to sample for chamfer distance computation')
     args = get_combined_args(parser)
     print("Rendering " + args.model_path)
 
-    print(model.every_n_frame)  # DEBUG
     dataset, iteration, pipe = model.extract(args), args.iteration, pipeline.extract(args)
     gaussians = GaussianModel(dataset.sh_degree)
     scene = Scene(dataset, gaussians, load_iteration=iteration, shuffle=False)
@@ -89,7 +92,7 @@ if __name__ == "__main__":
         os.makedirs(train_dir, exist_ok=True)
         # set the active_sh to 0 to export only diffuse texture
         gaussExtractor.gaussians.active_sh_degree = 0
-        gaussExtractor.reconstruction(scene.getTrainCameras())
+        gaussExtractor.reconstruction(scene.getTrainCameras()+scene.getTestCameras())
         # extract the mesh and save
         if args.unbounded:
             name = 'fuse_unbounded.ply'
@@ -107,3 +110,19 @@ if __name__ == "__main__":
         mesh_post = post_process_mesh(mesh, cluster_to_keep=args.num_cluster)
         o3d.io.write_triangle_mesh(os.path.join(train_dir, name.replace('.ply', '_post.ply')), mesh_post)
         print("mesh post processed saved at {}".format(os.path.join(train_dir, name.replace('.ply', '_post.ply'))))
+        if args.cull_mesh:
+            print("culling mesh ...")
+            mesh_post = cull_mesh(scene.getTrainCameras()+scene.getTestCameras(), mesh_post, masks_path=os.path.join(args.source_path, args.masks))
+            o3d.io.write_triangle_mesh(os.path.join(train_dir, name.replace('.ply', '_post.ply')), mesh_post)
+            print("mesh culled and saved at {}".format(os.path.join(train_dir, name.replace('.ply', '_post.ply'))))
+        if args.compute_chamfer:
+            print("computing chamfer distance ...")
+            # load ground truth mesh
+            gt_mesh = o3d.io.read_triangle_mesh(os.path.join(args.source_path, '../scans', 'mesh_aligned_0.05.ply'))
+            chamfer_dist = compute_chamfer_distance(mesh_post, gt_mesh, n_points=args.num_points)
+            results_dir = os.path.join(args.model_path, "point_cloud", "iteration_{}".format(iteration))
+            with open(os.path.join(results_dir, 'metrics.json'), 'r') as f:
+                metrics = json.load(f)
+            metrics.update({"CD": chamfer_dist})
+            with open(os.path.join(results_dir, 'metrics.json'), 'w') as f:
+                json.dump(metrics, f)
