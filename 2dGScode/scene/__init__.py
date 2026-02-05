@@ -79,9 +79,9 @@ class Scene:
                                                            "point_cloud",
                                                            "iteration_" + str(self.loaded_iter),
                                                            "point_cloud.ply")
-            self.gaussians.load_ply_and_exposure(ply_path, ply_path.replace(".ply", "_exposure.npy"),scene_info.train_cameras)
+            self.gaussians.load_ply_and_exposure(ply_path, ply_path.replace(".ply", "_exposure.npy"),scene_info.train_cameras, use_exposure_optimization=args.use_exposure_optimization)
         else:
-            self.gaussians.create_from_pcd(scene_info.point_cloud, self.cameras_extent, scene_info.train_cameras)
+            self.gaussians.create_from_pcd(scene_info.point_cloud, self.cameras_extent, scene_info.train_cameras, use_exposure_optimization=args.use_exposure_optimization)
 
     def save(self, iteration):
         point_cloud_path = os.path.join(self.model_path, "point_cloud/iteration_{}".format(iteration))

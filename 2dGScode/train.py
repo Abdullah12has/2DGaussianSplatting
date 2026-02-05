@@ -22,7 +22,7 @@ from scene import Scene, GaussianModel
 from utils.general_utils import safe_state
 import uuid
 from tqdm import tqdm
-from utils.image_utils import psnr, render_net_image,
+from utils.image_utils import psnr, render_net_image
 from argparse import ArgumentParser, Namespace
 from arguments import ModelParams, PipelineParams, OptimizationParams
 try:
@@ -255,11 +255,12 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_i
                 ssim_test /= len(config['cameras'])
                 if save and config['name'] == 'test':
                     metrics = {}
-                    metrics['L1'] = l1_test
-                    metrics['PSNR'] = psnr_test
-                    metrics['LPIPS'] = lpips_test
-                    metrics['SSIM'] = ssim_test
+                    metrics['L1'] = l1_test.item()
+                    metrics['PSNR'] = psnr_test.item()
+                    metrics['LPIPS'] = lpips_test.item()
+                    metrics['SSIM'] = ssim_test.item()
                     results_dir = os.path.join(model_path, "point_cloud", "iteration_{}".format(iteration))
+                    os.makedirs(results_dir, exist_ok=True)
                     with open(os.path.join(results_dir, f'metrics.json'), 'w') as f:
                         json.dump(metrics, f)
                 print("\n[ITER {}] Evaluating {}: L1 {} PSNR {} LPIPS {} SSIM {}".format(iteration, config['name'], l1_test, psnr_test, lpips_test, ssim_test))
@@ -280,7 +281,7 @@ if __name__ == "__main__":
     parser.add_argument('--port', type=int, default=6009)
     parser.add_argument('--detect_anomaly', action='store_true', default=False)
     parser.add_argument("--test_iterations", nargs="+", type=int, default=[i for i in range(1000, 60001, 1000)])
-    parser.add_argument("--save_iterations", nargs="+", type=int, default=[i for i in range(30000, 60001, 5000)])
+    parser.add_argument("--save_iterations", nargs="+", type=int, default=[i for i in range(30000, 60001, 1000)])
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[])
     parser.add_argument("--start_checkpoint", type=str, default = None)

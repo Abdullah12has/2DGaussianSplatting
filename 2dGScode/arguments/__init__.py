@@ -96,7 +96,7 @@ class OptimizationParams(ParamGroup):
         self.exposure_lr_delay_mult = 0.001
         self.percent_dense = 0.01
         self.lambda_dssim = 0.2
-        self.lambda_dist = 300
+        self.lambda_dist = 10
         self.lambda_normal = 0.05
         self.opacity_cull = 0.05
         self.use_exposure_optimization = False

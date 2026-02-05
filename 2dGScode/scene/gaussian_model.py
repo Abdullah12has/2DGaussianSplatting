@@ -132,7 +132,7 @@ class GaussianModel:
             return self._exposure[idx]
         else:
             return None
-    def create_from_pcd(self, pcd : BasicPointCloud, spatial_lr_scale : float, cam_infos: list = []):
+    def create_from_pcd(self, pcd : BasicPointCloud, spatial_lr_scale : float, cam_infos: list = [], use_exposure_optimization=False):
         self.spatial_lr_scale = spatial_lr_scale
         fused_point_cloud = torch.tensor(np.asarray(pcd.points)).float().cuda()
         fused_color = RGB2SH(torch.tensor(np.asarray(pcd.colors)).float().cuda())
@@ -155,9 +155,13 @@ class GaussianModel:
         self._rotation = nn.Parameter(rots.requires_grad_(True))
         self._opacity = nn.Parameter(opacities.requires_grad_(True))
         self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
-        exposure = torch.eye(3, 4, device="cuda")[None].repeat(len(cam_infos), 1, 1)
-        self._exposure_mapping = {cam_info.image_name: idx for idx, cam_info in enumerate(cam_infos)}
-        self._exposure = nn.Parameter(exposure.requires_grad_(True))
+        if use_exposure_optimization:
+            exposure = torch.eye(3, 4, device="cuda")[None].repeat(len(cam_infos), 1, 1)
+            self._exposure_mapping = {cam_info.image_name: idx for idx, cam_info in enumerate(cam_infos)}
+            self._exposure = nn.Parameter(exposure.requires_grad_(True))
+        else:
+            self._exposure = None
+            self._exposure_mapping = None
         print('initialized exposure for {} images'.format(len(cam_infos)))
 
     def training_setup(self, training_args, opt_dict=None):
@@ -262,7 +266,7 @@ class GaussianModel:
         optimizable_tensors = self.replace_tensor_to_optimizer(opacities_new, "opacity")
         self._opacity = optimizable_tensors["opacity"]
 
-    def load_ply_and_exposure(self, path, exposure_path, cam_infos: list = []):
+    def load_ply_and_exposure(self, path, exposure_path, cam_infos: list = [], use_exposure_optimization=False):
         plydata = PlyData.read(path)
 
         xyz = np.stack((np.asarray(plydata.elements[0]["x"]),
@@ -302,14 +306,19 @@ class GaussianModel:
         self._opacity = nn.Parameter(torch.tensor(opacities, dtype=torch.float, device="cuda").requires_grad_(True))
         self._scaling = nn.Parameter(torch.tensor(scales, dtype=torch.float, device="cuda").requires_grad_(True))
         self._rotation = nn.Parameter(torch.tensor(rots, dtype=torch.float, device="cuda").requires_grad_(True))
-        if os.path.exists(exposure_path):
-            exposure = torch.tensor(np.load(exposure_path), dtype=torch.float, device="cuda")
-            self._exposure_mapping = pickle.load(open(exposure_path.replace(".npy", "_mapping.pkl"), "rb"))
+        if use_exposure_optimization:
+            if os.path.exists(exposure_path):
+                exposure = torch.tensor(np.load(exposure_path), dtype=torch.float, device="cuda")
+                self._exposure_mapping = pickle.load(open(exposure_path.replace(".npy", "_mapping.pkl"), "rb"))
+                print('loaded exposure for {} images'.format(len(self._exposure_mapping)))
+            else:
+                exposure = torch.eye(3, 4, device="cuda")[None].repeat(len(cam_infos), 1, 1)
+                self._exposure_mapping = {cam_info.image_name: idx for idx, cam_info in enumerate(cam_infos)}
+            self._exposure = nn.Parameter(exposure.requires_grad_(True))
         else:
-            exposure = torch.eye(3, 4, device="cuda")[None].repeat(len(cam_infos), 1, 1)
-            self._exposure_mapping = {cam_info.image_name: idx for idx, cam_info in enumerate(cam_infos)}
-        self._exposure = nn.Parameter(exposure.requires_grad_(True))
-
+            print("Exposure optimization disabled, not loading exposure parameters even if they exist on disk.")
+            self._exposure = None
+            self._exposure_mapping = None
 
         self.active_sh_degree = self.max_sh_degree
 
