@@ -34,6 +34,9 @@ class CameraInfo(NamedTuple):
     image_name: str
     width: int
     height: int
+    mono_depth: np.array = None  # Monocular depth prior [H, W]
+    mono_normal: np.array = None  # Monocular normal prior [H, W, 3]
+
 
 class SceneInfo(NamedTuple):
     point_cloud: BasicPointCloud
@@ -67,6 +70,16 @@ def getNerfppNorm(cam_info):
 
 def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder):
     cam_infos = []
+    
+    # Check for monocular priors directory
+    base_path = os.path.dirname(images_folder)
+    mono_depth_dir = os.path.join(base_path, "mono_priors", "mono_depth")
+    mono_normal_dir = os.path.join(base_path, "mono_priors", "mono_normal")
+    has_mono_priors = os.path.exists(mono_depth_dir) and os.path.exists(mono_normal_dir)
+    
+    if has_mono_priors:
+        print("Found monocular priors directory, loading depth and normal priors...")
+    
     for idx, key in enumerate(cam_extrinsics):
         sys.stdout.write('\r')
         # the exact output you're looking for:
@@ -97,11 +110,25 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder):
         image_path = os.path.join(images_folder, os.path.basename(extr.name))
         image_name = os.path.basename(image_path).split(".")[0]
         image = Image.open(image_path)
+
+        # Load monocular priors if available
+        mono_depth = None
+        mono_normal = None
+        if has_mono_priors:
+            depth_path = os.path.join(mono_depth_dir, f"{image_name}.npy")
+            normal_path = os.path.join(mono_normal_dir, f"{image_name}.npy")
+            if os.path.exists(depth_path):
+                mono_depth = np.load(depth_path)
+            if os.path.exists(normal_path):
+                mono_normal = np.load(normal_path)
+
         cam_info = CameraInfo(uid=uid, R=R, T=T, FovY=FovY, FovX=FovX, image=image,
-                              image_path=image_path, image_name=image_name, width=width, height=height)
+                              image_path=image_path, image_name=image_name, width=width, height=height,
+                              mono_depth=mono_depth, mono_normal=mono_normal)
         cam_infos.append(cam_info)
     sys.stdout.write('\n')
     return cam_infos
+
 
 def fetchPly(path):
     plydata = PlyData.read(path)
@@ -174,16 +201,55 @@ def readColmapSceneInfo(path, images, eval, llffhold=8, colmap_folder="colmap"):
                            ply_path=ply_path)
     return scene_info
 
-def readCamerasFromTransforms(path, transformsfile, white_background, extension=".png"):
+def readCamerasFromTransforms(path, transformsfile, white_background, extension=".png", images_folder=None):
     cam_infos = []
+    
+    # Determine where to look for images
+    if images_folder is not None:
+        image_base_path = os.path.join(path, images_folder)
+    else:
+        image_base_path = path
 
     with open(os.path.join(path, transformsfile)) as json_file:
         contents = json.load(json_file)
-        fovx = contents["camera_angle_x"]
+        
+        # Handle both NeRF Synthetic and Nerfstudio formats
+        if "camera_angle_x" in contents:
+            # Standard NeRF format
+            fovx = contents["camera_angle_x"]
+            fovy = None  # Will be computed per image
+            use_nerf_format = True
+        elif "fl_x" in contents:
+            # Nerfstudio format (ScanNet++, etc.)
+            import math
+            fl_x = contents["fl_x"]
+            fl_y = contents["fl_y"]
+            w = contents["w"]
+            h = contents["h"]
+            # Convert focal length to FOV
+            fovx = 2 * math.atan(w / (2 * fl_x))
+            fovy = 2 * math.atan(h / (2 * fl_y))
+            use_nerf_format = False
+        else:
+            raise ValueError("Unsupported transforms format: missing camera parameters (need either 'camera_angle_x' or 'fl_x')")
 
         frames = contents["frames"]
         for idx, frame in enumerate(frames):
-            cam_name = os.path.join(path, frame["file_path"] + extension)
+            # Handle different file_path formats
+            file_path = frame["file_path"]
+            # Check if file already has an extension (for Nerfstudio format)
+            has_extension = os.path.splitext(file_path)[1] != ''
+            if has_extension:
+                # File path already includes extension (e.g., "DSC01471.JPG")
+                cam_name = file_path
+            else:
+                # File path needs extension added (e.g., "r_0" -> "r_0.png")
+                cam_name = file_path + extension
+            
+            # Construct full path - use image_base_path which may be a subdirectory
+            # For Nerfstudio format, file_path is just the filename (e.g., "DSC01471.JPG")
+            image_filename = os.path.basename(cam_name)
+            full_image_path = os.path.join(image_base_path, image_filename)
 
             # NeRF 'transform_matrix' is a camera-to-world transform
             c2w = np.array(frame["transform_matrix"])
@@ -195,21 +261,30 @@ def readCamerasFromTransforms(path, transformsfile, white_background, extension=
             R = np.transpose(w2c[:3,:3])  # R is stored transposed due to 'glm' in CUDA code
             T = w2c[:3, 3]
 
-            image_path = os.path.join(path, cam_name)
+            image_path = full_image_path
             image_name = Path(cam_name).stem
-            image = Image.open(image_path)
+            image = Image.open(full_image_path)
 
-            im_data = np.array(image.convert("RGBA"))
+            # Handle alpha channel if present
+            if image.mode == "RGBA":
+                im_data = np.array(image.convert("RGBA"))
+                bg = np.array([1,1,1]) if white_background else np.array([0, 0, 0])
+                norm_data = im_data / 255.0
+                arr = norm_data[:,:,:3] * norm_data[:, :, 3:4] + bg * (1 - norm_data[:, :, 3:4])
+                image = Image.fromarray(np.array(arr*255.0, dtype=np.byte), "RGB")
+            elif image.mode != "RGB":
+                image = image.convert("RGB")
 
-            bg = np.array([1,1,1]) if white_background else np.array([0, 0, 0])
-
-            norm_data = im_data / 255.0
-            arr = norm_data[:,:,:3] * norm_data[:, :, 3:4] + bg * (1 - norm_data[:, :, 3:4])
-            image = Image.fromarray(np.array(arr*255.0, dtype=np.byte), "RGB")
-
-            fovy = focal2fov(fov2focal(fovx, image.size[0]), image.size[1])
-            FovY = fovy 
-            FovX = fovx
+            # Compute FOV
+            if use_nerf_format:
+                # Standard NeRF: compute fovy from fovx and image dimensions
+                fovy_computed = focal2fov(fov2focal(fovx, image.size[0]), image.size[1])
+                FovY = fovy_computed
+                FovX = fovx
+            else:
+                # Nerfstudio: use pre-computed FOV values
+                FovX = fovx
+                FovY = fovy
 
             cam_infos.append(CameraInfo(uid=idx, R=R, T=T, FovY=FovY, FovX=FovX, image=image,
                             image_path=image_path, image_name=image_name, width=image.size[0], height=image.size[1]))

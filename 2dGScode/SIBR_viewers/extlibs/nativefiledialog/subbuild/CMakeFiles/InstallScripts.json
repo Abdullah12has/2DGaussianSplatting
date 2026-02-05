@@ -1,0 +1,7 @@
+{
+	"InstallScripts" : 
+	[
+		"/cluster/51/koubaa/mahdi/2DGaussianSplatting/Gaussian-Splatting-Monitor/SIBR_viewers/extlibs/nativefiledialog/subbuild/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

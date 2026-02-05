@@ -11,7 +11,9 @@
 
 import os
 import torch
+import math
 from random import randint
+from utils.loss_utils import l1_loss, ssim, scale_invariant_depth_loss, mono_normal_loss
 from utils.loss_utils import l1_loss, ssim
 from lpipsPyTorch import lpips
 import json
@@ -27,6 +29,14 @@ from argparse import ArgumentParser, Namespace
 from arguments import ModelParams, PipelineParams, OptimizationParams
 from scene.gaussian_model import build_scaling_rotation
 from torch.utils.tensorboard import SummaryWriter
+
+
+def get_mono_prior_decay(iteration, end_step):
+    """Exponential decay for monocular priors (MonoSDF style)."""
+    if end_step > 0:
+        return math.exp(-iteration / end_step * 10.0)
+    return 1.0
+
 
 def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint):
     # MCMC requires cap_max to be set if enabled
@@ -91,6 +101,35 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         normal_loss = lambda_normal * (normal_error).mean()
         dist_loss = lambda_dist * (rend_dist).mean()
 
+        # Monocular prior losses (Task 4) - MonoSDF style with exponential decay
+        mono_depth_loss = torch.tensor(0.0, device="cuda")
+        mono_normal_l1_loss = torch.tensor(0.0, device="cuda")
+        mono_normal_cos_loss = torch.tensor(0.0, device="cuda")
+        
+        # Compute exponential decay for monocular priors
+        decay = get_mono_prior_decay(iteration, opt.mono_prior_decay_end)
+        
+        # Create validity mask based on rendering alpha (MonoSDF style)
+        # Only supervise pixels with high rendering confidence
+        rend_alpha = render_pkg.get('rend_alpha')
+        valid_mask = None
+        if rend_alpha is not None:
+            valid_mask = (rend_alpha > 0.5).squeeze(0).float()  # [H, W]
+        
+        if opt.lambda_mono_depth > 0 and viewpoint_cam.mono_depth is not None:
+            surf_depth = render_pkg['surf_depth']
+            mono_depth_loss = decay * opt.lambda_mono_depth * scale_invariant_depth_loss(
+                surf_depth, viewpoint_cam.mono_depth, mask=valid_mask, alpha=0.5
+            )
+        
+        if (opt.lambda_mono_normal_l1 > 0 or opt.lambda_mono_normal_cos > 0) and viewpoint_cam.mono_normal is not None:
+            # Returns separate L1 and cosine losses
+            normal_l1, normal_cos = mono_normal_loss(
+                rend_normal, viewpoint_cam.mono_normal, mask=valid_mask
+            )
+            mono_normal_l1_loss = decay * opt.lambda_mono_normal_l1 * normal_l1
+            mono_normal_cos_loss = decay * opt.lambda_mono_normal_cos * normal_cos
+
         # MCMC regularization losses
         opacity_reg_loss = 0.0
         scale_reg_loss = 0.0
@@ -99,7 +138,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             scale_reg_loss = opt.scale_reg * torch.abs(gaussians.get_scaling).mean()
 
         # loss
-        total_loss = loss + dist_loss + normal_loss + opacity_reg_loss + scale_reg_loss
+        total_loss = loss + dist_loss + normal_loss + mono_depth_loss + mono_normal_l1_loss + mono_normal_cos_loss
         
         total_loss.backward()
 
@@ -129,6 +168,13 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             if tb_writer is not None:
                 tb_writer.add_scalar('train_loss_patches/dist_loss', ema_dist_for_log, iteration)
                 tb_writer.add_scalar('train_loss_patches/normal_loss', ema_normal_for_log, iteration)
+                # MonoSDF-style monocular prior losses
+                if mono_depth_loss.item() > 0:
+                    tb_writer.add_scalar('train_loss_patches/mono_depth_loss', mono_depth_loss.item(), iteration)
+                if mono_normal_l1_loss.item() > 0:
+                    tb_writer.add_scalar('train_loss_patches/mono_normal_l1_loss', mono_normal_l1_loss.item(), iteration)
+                if mono_normal_cos_loss.item() > 0:
+                    tb_writer.add_scalar('train_loss_patches/mono_normal_cos_loss', mono_normal_cos_loss.item(), iteration)
 
             training_report(tb_writer, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), testing_iterations, scene, render, (pipe, background),save=iteration in saving_iterations, model_path=scene.model_path)
             if (iteration in saving_iterations):
@@ -155,6 +201,34 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                     
                     if iteration % opt.opacity_reset_interval == 0 or (dataset.white_background and iteration == opt.densify_from_iter):
                         gaussians.reset_opacity()
+
+            # Depth Reinitialization (Task 2) - Mini-Splatting strategy
+            if len(opt.depth_reinit_iters) > 0 and iteration in opt.depth_reinit_iters:
+                from utils.depth_reinit import aggregate_depth_points, filter_duplicate_points
+                print(f"\n[ITER {iteration}] Depth Reinitialization (Mini-Splatting)")
+                
+                # Use ALL training cameras (Mini-Splatting uses all views)
+                train_cameras = scene.getTrainCameras()
+                
+                # Aggregate depth points with importance sampling
+                depth_points, depth_colors = aggregate_depth_points(
+                    train_cameras,
+                    gaussians, pipe, background, render,
+                    target_total_points=opt.reinit_target_points
+                )
+                
+                # Filter duplicate points (optional, for efficiency)
+                depth_points, depth_colors = filter_duplicate_points(depth_points, depth_colors)
+                
+                # Complete replacement - discard all old Gaussians
+                gaussians.reinitialize_from_depth(
+                    depth_points, depth_colors, opt
+                )
+                
+                # Clear cache and reset viewpoint stack
+                torch.cuda.empty_cache()
+                viewpoint_stack = None
+
 
             # Optimizer step
             if iteration < opt.iterations:

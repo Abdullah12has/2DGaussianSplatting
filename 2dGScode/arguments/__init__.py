@@ -34,6 +34,9 @@ class ParamGroup:
             else:
                 if t == bool:
                     group.add_argument("--" + key, default=value, action="store_true")
+                elif t == list:
+                    # Handle list arguments - allow multiple values
+                    group.add_argument("--" + key, default=value, nargs='+', type=int)
                 else:
                     group.add_argument("--" + key, default=value, type=t)
 
@@ -107,12 +110,24 @@ class OptimizationParams(ParamGroup):
         self.densify_from_iter = 500
         self.densify_until_iter = 15_000
         self.densify_grad_threshold = 0.0002
+        
+        # Monocular prior losses (Task 4) - MonoSDF style
+        self.lambda_mono_depth = 0.1  # Weight for monocular depth loss (MonoSDF default)
+        self.lambda_mono_normal_l1 = 0.05  # Weight for normal L1 loss (MonoSDF default)
+        self.lambda_mono_normal_cos = 0.05  # Weight for normal cosine loss (MonoSDF default)
+        self.mono_prior_decay_end = 15000  # End step for exponential decay (MonoSDF uses decay)
+        
+        # Depth reinitialization (Task 2) - Mini-Splatting strategy
+        self.depth_reinit_iters = []  # List of iterations to reinitialize (e.g., [2000, 5000, 10000])
+        self.reinit_target_points = 3_500_000  # Target total points for reinitialization (3.5M default)
+        
         # MCMC parameters
         self.noise_lr = 5e5        # SGLD noise learning rate
         self.scale_reg = 0.01      # L1 regularization on scale
         self.opacity_reg = 0.01    # L1 regularization on opacity
         self.mcmc = False          # Toggle for MCMC training
         super().__init__(parser, "Optimization Parameters")
+
 
 def get_combined_args(parser : ArgumentParser):
     cmdlne_string = sys.argv[1:]
