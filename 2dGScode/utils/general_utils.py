@@ -170,8 +170,12 @@ def colormap(img, cmap='jet'):
     fig.colorbar(im, ax=ax)
     fig.tight_layout()
     fig.canvas.draw()
-    data = np.frombuffer(fig.canvas.buffer_rgba(), dtype=np.uint8)
-    data = data.reshape(fig.canvas.get_width_height()[::-1] + (4,))[:,:,:3]
+    #### change made from tostring_rgb
+    h, w = fig.canvas.get_width_height()
+    data = np.asarray(fig.canvas.buffer_rgba())
+    data = data.reshape((h, w, 4))[:, :, :3]  # drop alpha channel
+    ### end change
+    data = data.reshape(fig.canvas.get_width_height()[::-1] + (3,))
     img = torch.from_numpy(data / 255.).float().permute(2,0,1)
     plt.close()
     return img

@@ -61,6 +61,7 @@ class ModelParams(ParamGroup):
         self.test_images = "images"
         self.resolution = -1.0
         self.white_background = False
+        self.cap_max = -1  # Maximum number of Gaussians (required for MCMC)
         self.data_device = "cuda"
         self.eval = False
         self.render_items = ['RGB', 'Alpha', 'Normal', 'Depth', 'Edge', 'Curvature']
@@ -106,6 +107,11 @@ class OptimizationParams(ParamGroup):
         self.densify_from_iter = 500
         self.densify_until_iter = 15_000
         self.densify_grad_threshold = 0.0002
+        # MCMC parameters
+        self.noise_lr = 5e5        # SGLD noise learning rate
+        self.scale_reg = 0.01      # L1 regularization on scale
+        self.opacity_reg = 0.01    # L1 regularization on opacity
+        self.mcmc = False          # Toggle for MCMC training
         super().__init__(parser, "Optimization Parameters")
 
 def get_combined_args(parser : ArgumentParser):

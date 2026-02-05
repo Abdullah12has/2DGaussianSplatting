@@ -212,4 +212,7 @@ data
 *.pub
 key
 *.pdf
+
+
 output/
+3dgs-mcmc/
