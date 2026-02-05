@@ -57,6 +57,10 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         iter_start.record()
 
         xyz_lr = gaussians.update_learning_rate(iteration)
+        
+        # Handle case where xyz_lr is None (e.g., during MCMC training)
+        if xyz_lr is None:
+            xyz_lr = opt.noise_lr
 
         # Every 1000 its we increase the levels of SH up to a maximum degree
         if iteration % 1000 == 0:
