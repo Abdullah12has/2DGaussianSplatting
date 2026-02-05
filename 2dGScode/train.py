@@ -138,7 +138,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             scale_reg_loss = opt.scale_reg * torch.abs(gaussians.get_scaling).mean()
 
         # loss
-        total_loss = loss + dist_loss + normal_loss + mono_depth_loss + mono_normal_l1_loss + mono_normal_cos_loss
+        total_loss = loss + dist_loss + normal_loss + mono_depth_loss + mono_normal_l1_loss + mono_normal_cos_loss + opacity_reg_loss + scale_reg_loss  
         
         total_loss.backward()
 
