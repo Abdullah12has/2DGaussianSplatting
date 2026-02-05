@@ -523,7 +523,6 @@ class GaussianModel:
 
         probs = self.get_opacity.squeeze(-1)
         add_idx, ratio = self._sample_alives(probs=probs, num=num_gs)
-
         (
             new_xyz,
             new_features_dc,

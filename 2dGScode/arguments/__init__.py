@@ -97,6 +97,7 @@ class OptimizationParams(ParamGroup):
         self.noise_lr = 5e5        # SGLD noise learning rate
         self.scale_reg = 0.01      # L1 regularization on scale
         self.opacity_reg = 0.01    # L1 regularization on opacity
+        self.mcmc = False          # Toggle for MCMC training
         super().__init__(parser, "Optimization Parameters")
 
 def get_combined_args(parser : ArgumentParser):
