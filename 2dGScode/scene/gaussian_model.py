@@ -213,12 +213,15 @@ class GaussianModel:
         
         for param_group in self.optimizer.param_groups:
             if param_group["name"] == "xyz":
-                lr = self.xyz_scheduler_args(iteration)
-                param_group['lr'] = lr
+                xyz_lr = self.xyz_scheduler_args(iteration)
+                param_group['lr'] = xyz_lr
             if param_group["name"] == "exposure":
-                lr = self.exposure_scheduler_args(iteration)
-                param_group['lr'] = lr
-                
+                exposure_lr = self.exposure_scheduler_args(iteration)
+                param_group['lr'] = exposure_lr
+
+        return xyz_lr
+
+            
 
     def construct_list_of_attributes(self):
         l = ['x', 'y', 'z', 'nx', 'ny', 'nz']
