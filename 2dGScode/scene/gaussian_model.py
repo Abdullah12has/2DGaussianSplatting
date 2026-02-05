@@ -9,6 +9,7 @@
 # For inquiries contact  george.drettakis@inria.fr
 #
 
+from pyexpat import model
 import torch
 import numpy as np
 from utils.general_utils import inverse_sigmoid, get_expon_lr_func, build_rotation
@@ -20,7 +21,7 @@ from utils.sh_utils import RGB2SH
 from simple_knn._C import distCUDA2
 from utils.graphics_utils import BasicPointCloud
 from utils.general_utils import strip_symmetric, build_scaling_rotation
-
+import pickle
 class GaussianModel:
 
     def setup_functions(self):
@@ -42,7 +43,7 @@ class GaussianModel:
 
 
     def __init__(self, sh_degree : int):
-        self.active_sh_degree = 0
+        self.active_sh_degree = 0 #spherical harmonics degree used during training
         self.max_sh_degree = sh_degree  
         self._xyz = torch.empty(0)
         self._features_dc = torch.empty(0)
@@ -72,6 +73,8 @@ class GaussianModel:
             self.denom,
             self.optimizer.state_dict(),
             self.spatial_lr_scale,
+            self._exposure,
+            self._exposure_mapping
         )
     
     def restore(self, model_args, training_args):
@@ -83,14 +86,17 @@ class GaussianModel:
         self._rotation, 
         self._opacity,
         self.max_radii2D, 
-        xyz_gradient_accum, 
-        denom,
+        self.xyz_gradient_accum, 
+        self.denom,
         opt_dict, 
-        self.spatial_lr_scale) = model_args
-        self.training_setup(training_args)
-        self.xyz_gradient_accum = xyz_gradient_accum
-        self.denom = denom
-        self.optimizer.load_state_dict(opt_dict)
+        self.spatial_lr_scale,
+        self._exposure,
+        _exposure_mapping
+        ) = model_args
+        if _exposure_mapping is not None:
+            self._exposure_mapping = _exposure_mapping 
+        self.training_setup(training_args,opt_dict)
+        
 
     @property
     def get_scaling(self):
@@ -120,8 +126,13 @@ class GaussianModel:
     def oneupSHdegree(self):
         if self.active_sh_degree < self.max_sh_degree:
             self.active_sh_degree += 1
-
-    def create_from_pcd(self, pcd : BasicPointCloud, spatial_lr_scale : float):
+    def get_image_exposure(self, image_name):
+        if self._exposure is not None and image_name in self._exposure_mapping:
+            idx = self._exposure_mapping[image_name]
+            return self._exposure[idx]
+        else:
+            return None
+    def create_from_pcd(self, pcd : BasicPointCloud, spatial_lr_scale : float, cam_infos: list = [], use_exposure_optimization=False):
         self.spatial_lr_scale = spatial_lr_scale
         fused_point_cloud = torch.tensor(np.asarray(pcd.points)).float().cuda()
         fused_color = RGB2SH(torch.tensor(np.asarray(pcd.colors)).float().cuda())
@@ -144,8 +155,16 @@ class GaussianModel:
         self._rotation = nn.Parameter(rots.requires_grad_(True))
         self._opacity = nn.Parameter(opacities.requires_grad_(True))
         self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
+        if use_exposure_optimization:
+            exposure = torch.eye(3, 4, device="cuda")[None].repeat(len(cam_infos), 1, 1)
+            self._exposure_mapping = {cam_info.image_name: idx for idx, cam_info in enumerate(cam_infos)}
+            self._exposure = nn.Parameter(exposure.requires_grad_(True))
+        else:
+            self._exposure = None
+            self._exposure_mapping = None
+        print('initialized exposure for {} images'.format(len(cam_infos)))
 
-    def training_setup(self, training_args):
+    def training_setup(self, training_args, opt_dict=None):
         self.percent_dense = training_args.percent_dense
         self.xyz_gradient_accum = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
         self.denom = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
@@ -158,20 +177,46 @@ class GaussianModel:
             {'params': [self._scaling], 'lr': training_args.scaling_lr, "name": "scaling"},
             {'params': [self._rotation], 'lr': training_args.rotation_lr, "name": "rotation"}
         ]
-
+    
+        if training_args.use_exposure_optimization:
+            if self._exposure is None:
+                exposure = torch.eye(3, 4, device="cuda")[None].repeat(1, 1, 1)
+                self._exposure = nn.Parameter(exposure.requires_grad_(True))
+                if opt_dict is not None:
+                    opt_dict['param_groups'].append({'params': [self._exposure], 'lr': training_args.exposure_lr_init, "name": "exposure"})
+                    opt_dict['state'][self._exposure] = {
+                        'step': torch.tensor(0),
+                        'exp_avg': torch.zeros_like(self._exposure),
+                        'exp_avg_sq': torch.zeros_like(self._exposure)
+                    }
+            self.exposure_scheduler_args = get_expon_lr_func(training_args.exposure_lr_init, training_args.exposure_lr_final, lr_delay_steps=training_args.exposure_lr_delay_steps, lr_delay_mult=training_args.exposure_lr_delay_mult, max_steps=training_args.iterations)
+            l.append({'params': [self._exposure], 'lr': training_args.exposure_lr_init, "name": "exposure"})
+        else :
+            if opt_dict is not None:
+                opt_dict['param_groups'] = [p for p in opt_dict['param_groups'] if 'name' not in p or p['name'] != 'exposure']
+                opt_dict['state'] = {k:v for k,v in opt_dict['state'].items() if k != self._exposure}
+            self._exposure = None
+            self._exposure_mapping = None
+        
         self.optimizer = torch.optim.Adam(l, lr=0.0, eps=1e-15)
+
         self.xyz_scheduler_args = get_expon_lr_func(lr_init=training_args.position_lr_init*self.spatial_lr_scale,
                                                     lr_final=training_args.position_lr_final*self.spatial_lr_scale,
                                                     lr_delay_mult=training_args.position_lr_delay_mult,
                                                     max_steps=training_args.position_lr_max_steps)
-
+        if opt_dict is not None:
+            self.optimizer.load_state_dict(opt_dict)
     def update_learning_rate(self, iteration):
         ''' Learning rate scheduling per step '''
+        
         for param_group in self.optimizer.param_groups:
             if param_group["name"] == "xyz":
                 lr = self.xyz_scheduler_args(iteration)
                 param_group['lr'] = lr
-                return lr
+            if param_group["name"] == "exposure":
+                lr = self.exposure_scheduler_args(iteration)
+                param_group['lr'] = lr
+                
 
     def construct_list_of_attributes(self):
         l = ['x', 'y', 'z', 'nx', 'ny', 'nz']
@@ -187,7 +232,7 @@ class GaussianModel:
             l.append('rot_{}'.format(i))
         return l
 
-    def save_ply(self, path):
+    def save_ply_and_exposure(self, path):
         mkdir_p(os.path.dirname(path))
 
         xyz = self._xyz.detach().cpu().numpy()
@@ -197,7 +242,17 @@ class GaussianModel:
         opacities = self._opacity.detach().cpu().numpy()
         scale = self._scaling.detach().cpu().numpy()
         rotation = self._rotation.detach().cpu().numpy()
-
+        exposure_path = path.replace(".ply", "_exposure.npy")
+        exposure_mapping_path = exposure_path.replace(".npy", "_mapping.pkl")
+        if self._exposure is not None:
+            with open(exposure_mapping_path, "wb") as f:
+                pickle.dump(self._exposure_mapping, f)
+            np.save(exposure_path, self._exposure.detach().cpu().numpy())
+        else:
+            if os.path.exists(exposure_path):
+                os.remove(exposure_path)
+            if os.path.exists(exposure_mapping_path):
+                os.remove(exposure_mapping_path)
         dtype_full = [(attribute, 'f4') for attribute in self.construct_list_of_attributes()]
 
         elements = np.empty(xyz.shape[0], dtype=dtype_full)
@@ -211,7 +266,7 @@ class GaussianModel:
         optimizable_tensors = self.replace_tensor_to_optimizer(opacities_new, "opacity")
         self._opacity = optimizable_tensors["opacity"]
 
-    def load_ply(self, path):
+    def load_ply_and_exposure(self, path, exposure_path, cam_infos: list = [], use_exposure_optimization=False):
         plydata = PlyData.read(path)
 
         xyz = np.stack((np.asarray(plydata.elements[0]["x"]),
@@ -251,6 +306,19 @@ class GaussianModel:
         self._opacity = nn.Parameter(torch.tensor(opacities, dtype=torch.float, device="cuda").requires_grad_(True))
         self._scaling = nn.Parameter(torch.tensor(scales, dtype=torch.float, device="cuda").requires_grad_(True))
         self._rotation = nn.Parameter(torch.tensor(rots, dtype=torch.float, device="cuda").requires_grad_(True))
+        if use_exposure_optimization:
+            if os.path.exists(exposure_path):
+                exposure = torch.tensor(np.load(exposure_path), dtype=torch.float, device="cuda")
+                self._exposure_mapping = pickle.load(open(exposure_path.replace(".npy", "_mapping.pkl"), "rb"))
+                print('loaded exposure for {} images'.format(len(self._exposure_mapping)))
+            else:
+                exposure = torch.eye(3, 4, device="cuda")[None].repeat(len(cam_infos), 1, 1)
+                self._exposure_mapping = {cam_info.image_name: idx for idx, cam_info in enumerate(cam_infos)}
+            self._exposure = nn.Parameter(exposure.requires_grad_(True))
+        else:
+            print("Exposure optimization disabled, not loading exposure parameters even if they exist on disk.")
+            self._exposure = None
+            self._exposure_mapping = None
 
         self.active_sh_degree = self.max_sh_degree
 
@@ -272,6 +340,8 @@ class GaussianModel:
     def _prune_optimizer(self, mask):
         optimizable_tensors = {}
         for group in self.optimizer.param_groups:
+            if group["name"] not in ["xyz", "f_dc", "f_rest", "opacity", "scaling", "rotation"]:
+                continue
             stored_state = self.optimizer.state.get(group['params'][0], None)
             if stored_state is not None:
                 stored_state["exp_avg"] = stored_state["exp_avg"][mask]
@@ -306,6 +376,8 @@ class GaussianModel:
     def cat_tensors_to_optimizer(self, tensors_dict):
         optimizable_tensors = {}
         for group in self.optimizer.param_groups:
+            if group["name"] not in tensors_dict:
+                continue
             assert len(group["params"]) == 1
             extension_tensor = tensors_dict[group["name"]]
             stored_state = self.optimizer.state.get(group['params'][0], None)

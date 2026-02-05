@@ -9,15 +9,20 @@
 # For inquiries contact  huangbb@shanghaitech.edu.cn
 #
 
+import gc
+import cv2
 import torch
 import numpy as np
 import os
+import torch.nn.functional as F
+
 import math
 from tqdm import tqdm
 from utils.render_utils import save_img_f32, save_img_u8
 from functools import partial
 import open3d as o3d
 import trimesh
+from skimage.morphology import dilation, disk
 
 def post_process_mesh(mesh, cluster_to_keep=1000):
     """
@@ -41,7 +46,74 @@ def post_process_mesh(mesh, cluster_to_keep=1000):
     print("num vertices raw {}".format(len(mesh.vertices)))
     print("num vertices post {}".format(len(mesh_0.vertices)))
     return mesh_0
+def compute_chamfer_distance(mesh_pred: o3d.geometry.TriangleMesh, mesh_gt: o3d.geometry.TriangleMesh, n_points=100000) -> float:
+    """
+    Compute Chamfer Distance between two meshes by sampling points uniformly.
 
+    Args:
+        mesh_pred (o3d.geometry.TriangleMesh): The predicted mesh.
+        mesh_gt (o3d.geometry.TriangleMesh): The ground truth mesh.
+        n_points (int): Number of points to sample from each mesh.
+
+    Returns:
+        float: The Chamfer Distance between the two meshes.
+    """
+    # Sample points uniformly from both meshes
+    pcd_pred = mesh_pred.sample_points_uniformly(number_of_points=n_points)
+    pcd_gt = mesh_gt.sample_points_uniformly(number_of_points=n_points)
+
+    mesh_pred = o3d.t.geometry.TriangleMesh.from_legacy(mesh_pred)
+    mesh_gt = o3d.t.geometry.TriangleMesh.from_legacy(mesh_gt)
+# Sample to point clouds
+    pcd1 = mesh_pred.sample_points_uniformly(n_points)
+    pcd2 = mesh_gt.sample_points_uniformly(n_points)
+    params = o3d.t.geometry.MetricParameters()
+    metrics = pcd1.compute_metrics(pcd2, [o3d.t.geometry.Metric.ChamferDistance],params)
+# Calculate mean distances
+    print(f"CD: {metrics[o3d.t.geometry.Metric.ChamferDistance].item()}")
+
+    return metrics[o3d.t.geometry.Metric.ChamferDistance].item()
+def cull_mesh(cameras ,mesh, masks_path) -> o3d.geometry.TriangleMesh:
+    vertices = mesh.vertices
+    vertices = torch.from_numpy(vertices).cuda()
+    vertices = torch.cat((vertices, torch.ones_like(vertices[:, :1])), dim=-1)
+    vertices = vertices.float()
+
+    for viewpoint_camera in tqdm(cameras, desc="Culling progress"):
+        sampled_masks = []
+        with torch.no_grad():
+            W, H = viewpoint_camera.image_width, viewpoint_camera.image_height
+            near, far = viewpoint_camera.znear, viewpoint_camera.zfar
+            ndc2pix = torch.tensor([
+                [W / 2, 0, 0, (W-1) / 2],
+                [0, H / 2, 0, (H-1) / 2],
+                [0, 0, far-near, near],
+                [0, 0, 0, 1]]).float().cuda().T
+            world2pix =  viewpoint_camera.full_proj_transform @ ndc2pix
+            cam_points = vertices@world2pix
+            pix_coords = cam_points[:, :2] / (cam_points[:, 2].unsqueeze(1) + 1e-6)
+            pix_coords[..., 0] /= W - 1
+            pix_coords[..., 1] /= H - 1
+            pix_coords = (pix_coords - 0.5) * 2
+            valid = ((pix_coords > -1. ) & (pix_coords < 1.)).all(dim=-1).float()
+            # dialate mask similar to unisurf
+            mask = cv2.imread(os.path.join(masks_path, f"{viewpoint_camera.image_name.split('.')[0]}.png"))
+            mask = mask[:, :, 0].astype(np.float32) / 256.
+            maski = torch.from_numpy(dilation(mask, disk(24))).float()[None, None].cuda()
+
+            sampled_mask = F.grid_sample(maski, pix_coords[None, None], mode='nearest', padding_mode='zeros', align_corners=True)[0, -1, 0]
+
+            sampled_mask = sampled_mask + (1. - valid)
+            sampled_masks.append(sampled_mask)
+        sampled_masks = torch.stack(sampled_masks, -1)
+        # filter
+        mask = (sampled_masks > 0.).all(dim=-1).cpu().numpy()
+        face_mask = mask[mesh.faces].all(axis=1)
+        mesh.update_vertices(mask)
+        mesh.update_faces(face_mask)
+    print("After culling: ", len(mesh.vertices))
+    print("vertex range: ", mesh.vertices.min(axis=0), mesh.vertices.max(axis=0))
+    return mesh
 def to_cam_open3d(viewpoint_stack):
     camera_traj = []
     for i, viewpoint_cam in enumerate(viewpoint_stack):
@@ -137,7 +209,7 @@ class GaussianExtractor(object):
         print(f"Use at least {2.0 * self.radius:.2f} for depth_trunc")
 
     @torch.no_grad()
-    def extract_mesh_bounded(self, voxel_size=0.004, sdf_trunc=0.02, depth_trunc=3, mask_backgrond=True):
+    def extract_mesh_bounded(self, voxel_size=0.008, sdf_trunc=0.02, depth_trunc=3, mask_backgrond=True):
         """
         Perform TSDF fusion given a fixed depth range, used in the paper.
         
@@ -162,7 +234,7 @@ class GaussianExtractor(object):
         for i, cam_o3d in tqdm(enumerate(to_cam_open3d(self.viewpoint_stack)), desc="TSDF integration progress"):
             rgb = self.rgbmaps[i]
             depth = self.depthmaps[i]
-            
+            #print((depth.max(), depth.min()))
             # if we have mask provided, use it
             if mask_backgrond and (self.viewpoint_stack[i].gt_alpha_mask is not None):
                 depth[(self.viewpoint_stack[i].gt_alpha_mask < 0.5)] = 0
@@ -176,6 +248,8 @@ class GaussianExtractor(object):
             )
 
             volume.integrate(rgbd, intrinsic=cam_o3d.intrinsic, extrinsic=cam_o3d.extrinsic)
+            
+           
 
         mesh = volume.extract_triangle_mesh()
         return mesh
