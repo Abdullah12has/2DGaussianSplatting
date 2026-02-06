@@ -55,9 +55,9 @@ if __name__ == "__main__":
     print("Total combinations to test: ", all_combinations)
     print("Total number of combinations: ", len(all_combinations))
     modification_opts = {'exposure_optimization':'--use_exposure_optimization', 'MCMC':'--mcmc', 'depth Gaussian reinitialization':'--depth_reinit_iters 2000 5000 10000 --reinit_target_points 3500000', 'normal_depth_prior':'  --lambda_mono_depth 0.1 --lambda_mono_normal_l1 0.05 --lambda_mono_normal_cos 0.05 --mono_prior_decay_end 15000'}
-    file_list = read_file_to_list_clean(os.path.join(dataset_path, "to_download.txt"))
-    val_list = read_file_to_list_clean(os.path.join(dataset_path, "splits/nvs_sem_val.txt"))
-    downloaded_val_list = [line for line in file_list if line in val_list]
+    #file_list = read_file_to_list_clean(os.path.join(dataset_path, "to_download.txt"))
+    #val_list = read_file_to_list_clean(os.path.join(dataset_path, "splits/nvs_sem_val.txt"))
+    #downloaded_val_list = [line for line in file_list if line in val_list]
     for comb in all_combinations:
         for k in modification_opts.keys():
             if k in comb:
@@ -74,7 +74,7 @@ if __name__ == "__main__":
                 modification_opts['MCMC'] = f'--mcmc --cap_max {cap_max}'
         train_cmd = f'python 2dGScode/train.py --source_path {source_path} --model_path {model_path}'+ ' ' + ' '.join([modification_opts[opt] for opt in comb]) + ' ' + subscene__options[subscene]['train']+ f' --lambda_dist {lambda_dist[scene] if scene in lambda_dist else 10}'
         
-        render_cmd = f'python 2dGScode/render.py --source_path {source_path} --model_path {model_path}' + ' ' + ' '.join([modification_opts[opt] for opt in comb]) + ' ' + subscene__options[subscene]['render']+ f' --lambda_dist {lambda_dist[scene] if scene in lambda_dist else 10}'
+        render_cmd = f'python 2dGScode/render.py --source_path {source_path} --model_path {model_path}' + ' ' + subscene__options[subscene]['render']
         print("Executing training command: ", train_cmd)
         os.system(train_cmd)
         print("Executing rendering command: ", render_cmd)
