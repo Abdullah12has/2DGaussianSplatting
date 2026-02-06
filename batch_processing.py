@@ -1,7 +1,7 @@
 import argparse
 import os
 from itertools import combinations
-
+import json
 
 def read_file_to_list(file_path):
     """
@@ -45,7 +45,7 @@ if __name__ == "__main__":
         all_combinations.extend(combinations(mod_list, r))
     lambda_dist = {'7b6477cb95': 10, 'c50d2d1d42': 10, 'cc5237fd77': 10, '0b031f3119': 100} if subscene == 'dslr' else {'7b6477cb95': 10, 'c50d2d1d42': 10, 'cc5237fd77': 10, '0b031f3119': 10}
     subscene__options = {
-        'iphone':  {'train':'--depth_ratio 1 --images rgb --test_images ../dslr/resized_undistorted_images --train_transforms_file nerfstudio/transforms.json --test_transforms_file ../dslr/nerfstudio/transforms_undistorted.json --eval',
+        'iphone':  {'train':'--depth_ratio 1 --images rgb --test_images ../dslr/resized_undistorted_images --train_transforms_file nerfstudio/transforms.json --test_transforms_file ../dslr/nerfstudio/transforms_undistorted.json --eval ',
                     'render':'--depth_ratio 1 --images ../dslr/resized_undistorted_images --test_images ../dslr/resized_undistorted_images --train_transforms_file ../dslr/nerfstudio/transforms_undistorted.json --test_transforms_file ../dslr/nerfstudio/transforms_undistorted.json --eval --skip_train --skip_test --voxel_size 0.02 --depth_trunc 7 --sdf_trunc 0.1 --compute_chamfer --iteration 30000'},
         'dslr': {'train':'--depth_ratio 1 --images resized_undistorted_images --test_images resized_undistorted_images --train_transforms_file nerfstudio/transforms_undistorted.json --test_transforms_file nerfstudio/transforms_undistorted.json --eval',
                  'render':'--depth_ratio 1 --images ../dslr/resized_undistorted_images --test_images ../dslr/resized_undistorted_images --train_transforms_file ../dslr/nerfstudio/transforms_undistorted.json --test_transforms_file ../dslr/nerfstudio/transforms_undistorted.json --eval --skip_train --skip_test --voxel_size 0.02 --depth_trunc 7 --sdf_trunc 0.1 --compute_chamfer --iteration 30000'}
@@ -54,7 +54,7 @@ if __name__ == "__main__":
 
     print("Total combinations to test: ", all_combinations)
     print("Total number of combinations: ", len(all_combinations))
-    modification_opts = {'exposure_optimization':'--use_exposure_optimization', 'MCMC':'--mcmc --cap_max = 300000', 'depth Gaussian reinitialization':'--depth_reinit_iters 2000 5000 10000 --reinit_target_points 3500000', 'normal_depth_prior':'  --lambda_mono_depth 0.1 --lambda_mono_normal_l1 0.05 --lambda_mono_normal_cos 0.05 --mono_prior_decay_end 15000'}
+    modification_opts = {'exposure_optimization':'--use_exposure_optimization', 'MCMC':'--mcmc', 'depth Gaussian reinitialization':'--depth_reinit_iters 2000 5000 10000 --reinit_target_points 3500000', 'normal_depth_prior':'  --lambda_mono_depth 0.1 --lambda_mono_normal_l1 0.05 --lambda_mono_normal_cos 0.05 --mono_prior_decay_end 15000'}
     file_list = read_file_to_list_clean(os.path.join(dataset_path, "to_download.txt"))
     val_list = read_file_to_list_clean(os.path.join(dataset_path, "splits/nvs_sem_val.txt"))
     downloaded_val_list = [line for line in file_list if line in val_list]
@@ -66,6 +66,12 @@ if __name__ == "__main__":
                 print(f'\033[91m{k} disabled\033[0m')
         source_path = os.path.join(dataset_path,'data',scene, subscene)
         model_path = os.path.join(args.output_path,scene, subscene, '-'.join([opt.replace(' ','_') for opt in comb]) if len(comb)>0 else "base_model")
+        if 'MCMC' in comb:
+            os.makedirs(model_path, exist_ok=True)
+            with open(os.path.join(model_path, '../base_model/point_cloud/iteration_30000/metrics.json'), 'r') as log_file:
+                log_data = json.load(log_file)
+                cap_max = log_data['Points']
+                modification_opts['MCMC'] = f'--mcmc --cap_max {cap_max}'
         train_cmd = f'python 2dGScode/train.py --source_path {source_path} --model_path {model_path}'+ ' ' + ' '.join([modification_opts[opt] for opt in comb]) + ' ' + subscene__options[subscene]['train']+ f' --lambda_dist {lambda_dist[scene] if scene in lambda_dist else 10}'
         
         render_cmd = f'python 2dGScode/render.py --source_path {source_path} --model_path {model_path}' + ' ' + ' '.join([modification_opts[opt] for opt in comb]) + ' ' + subscene__options[subscene]['render']+ f' --lambda_dist {lambda_dist[scene] if scene in lambda_dist else 10}'

@@ -371,6 +371,7 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_i
                     metrics['PSNR'] = psnr_test.item()
                     metrics['LPIPS'] = lpips_test.item()
                     metrics['SSIM'] = ssim_test.item()
+                    metrics['Points'] = scene.gaussians.get_xyz.shape[0]
                     results_dir = os.path.join(model_path, "point_cloud", "iteration_{}".format(iteration))
                     os.makedirs(results_dir, exist_ok=True)
                     with open(os.path.join(results_dir, f'metrics.json'), 'w') as f:
@@ -399,7 +400,8 @@ if __name__ == "__main__":
     parser.add_argument("--start_checkpoint", type=str, default = None)
     args = parser.parse_args(sys.argv[1:])
     args.save_iterations.append(args.iterations)
-    
+    args.test_iterations.append(args.iterations)
+
     print("Optimizing " + args.model_path)
 
     # Initialize system state (RNG)
