@@ -92,7 +92,7 @@ if __name__ == "__main__":
         os.makedirs(train_dir, exist_ok=True)
         # set the active_sh to 0 to export only diffuse texture
         gaussExtractor.gaussians.active_sh_degree = 0
-        gaussExtractor.reconstruction(scene.getTrainCameras()+scene.getTestCameras())
+        gaussExtractor.reconstruction(scene.getTrainCameras())
         # extract the mesh and save
         if args.unbounded:
             name = 'fuse_unbounded.ply'
@@ -112,7 +112,7 @@ if __name__ == "__main__":
         print("mesh post processed saved at {}".format(os.path.join(train_dir, name.replace('.ply', '_post.ply'))))
         if args.cull_mesh:
             print("culling mesh ...")
-            mesh_post = cull_mesh(scene.getTrainCameras()+scene.getTestCameras(), mesh_post, masks_path=os.path.join(args.source_path, args.masks))
+            mesh_post = cull_mesh(scene.getTrainCameras(), mesh_post, masks_path=os.path.join(args.source_path, args.masks))
             o3d.io.write_triangle_mesh(os.path.join(train_dir, name.replace('.ply', '_post.ply')), mesh_post)
             print("mesh culled and saved at {}".format(os.path.join(train_dir, name.replace('.ply', '_post.ply'))))
         if args.compute_chamfer:

@@ -290,7 +290,7 @@ def readCamerasFromTransforms(path, transformsfile, white_background, extension=
                             image_path=image_path, image_name=image_name, width=image.size[0], height=image.size[1]))
             
     return cam_infos
-def readCamerasFromTransforms1(path, transforms_file, white_background, image_subdir, every_n_frame=1, frame_entry="frames", test=False):
+def readCamerasFromTransforms1(path, transforms_file, white_background, image_subdir, max_samples=1000, frame_entry="frames", test=False):
     cam_infos = []
 
     with open(os.path.join(path, transforms_file)) as json_file:
@@ -298,7 +298,12 @@ def readCamerasFromTransforms1(path, transforms_file, white_background, image_su
         fl_x = contents["fl_x"]
         fl_y = contents["fl_y"]
         frames = contents[frame_entry]
-        frames = frames[::every_n_frame]
+        n= len(frames)
+        if n> max_samples:
+            print(f"Too many frames ({n}), sampling {max_samples} frames for {'testing' if test else 'training'}...")
+            indices = np.linspace(0, n - 1, max_samples).astype(int)
+            frames = [frames[i] for i in indices]
+        
         print("Number of {} frames: {}".format("test" if test else "train", len(frames)))
         for idx, frame in enumerate(frames):
             cam_name = os.path.join(path,image_subdir, frame["file_path"])
@@ -340,12 +345,12 @@ def readNerfSyntheticInfo(args, extension=".png"):
     try: 
         train_cam_infos = readCamerasFromTransforms(args.source_path, "transforms_train.json", args.white_background, extension)
     except:
-        train_cam_infos = readCamerasFromTransforms1(args.source_path, args.train_transforms_file, args.white_background, args.images, every_n_frame=args.every_n_frame, frame_entry=args.train_frame_entry, test=False)
+        train_cam_infos = readCamerasFromTransforms1(args.source_path, args.train_transforms_file, args.white_background, args.images, max_samples=args.train_max_samples, frame_entry=args.train_frame_entry, test=False)
     print("Reading Test Transforms")
     try:
         test_cam_infos = readCamerasFromTransforms(args.source_path, "transforms_test.json", args.white_background, extension)
     except:
-        test_cam_infos = readCamerasFromTransforms1(args.source_path, args.test_transforms_file, args.white_background, args.test_images, every_n_frame=1, frame_entry=args.test_frame_entry, test=True)
+        test_cam_infos = readCamerasFromTransforms1(args.source_path, args.test_transforms_file, args.white_background, args.test_images, max_samples=args.test_max_samples, frame_entry=args.test_frame_entry, test=True)
     
     if not args.eval:
         train_cam_infos.extend(test_cam_infos)

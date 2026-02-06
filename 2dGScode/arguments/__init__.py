@@ -54,12 +54,13 @@ class ModelParams(ParamGroup):
         self.test_transforms_file = "transforms_train.json"
         self.train_transforms_file = "transforms_train.json"
         self.use_exposure_optimization = False
-        self.every_n_frame = 1
         self.use_colmap = False
         self.colmap_folder = "colmap"
         self.test_frame_entry="test_frames"
         self.train_frame_entry="frames"
         self.model_path = ""
+        self.train_max_samples = 1000
+        self.test_max_samples = 200
         self.images = "images"
         self.test_images = "images"
         self.resolution = -1.0
