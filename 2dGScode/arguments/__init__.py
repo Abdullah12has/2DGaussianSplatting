@@ -120,7 +120,7 @@ class OptimizationParams(ParamGroup):
         
         # Depth reinitialization (Task 2) - Mini-Splatting strategy
         self.depth_reinit_iters = []  # List of iterations to reinitialize (e.g., [2000, 5000, 10000])
-        self.reinit_target_points = 3_500_000  # Target total points for reinitialization (3.5M default)
+        self.reinit_target_points_ratio = 1.0  # Target total points for reinitialization (3.5M default)
         
         # MCMC parameters
         self.noise_lr = 5e5        # SGLD noise learning rate
