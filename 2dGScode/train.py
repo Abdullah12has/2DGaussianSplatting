@@ -224,7 +224,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                 depth_points, depth_colors = aggregate_depth_points(
                     train_cameras,
                     gaussians, pipe, background, render,
-                    target_total_points=opt.reinit_target_points
+                    target_total_points=opt.reinit_target_points_ratio * (gaussians.get_xyz.shape[0]),  # Scale target points by current number of Gaussians
                 )
                 
                 # Filter duplicate points (optional, for efficiency)
