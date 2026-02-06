@@ -31,7 +31,7 @@ def read_file_to_list_clean(file_path):
 if __name__ == "__main__":
     parser= argparse.ArgumentParser()
     parser.add_argument('--dataset_path', type=str, default="/cluster/51/koubaa/data/scannet++")
-    parser.add_argument('--scene', type=str, default='', help='weight for distance regularization')
+    parser.add_argument('--scene', type=str, default='', help='scene to process')
     parser.add_argument('--output_path', type=str, default="/cluster/51/koubaa/data/output/scannet++/")
     parser.add_argument('--subscene', type=str, default="dslr", choices=['iphone', 'dslr'], help='which subscene to process')
     args = parser.parse_args()
