@@ -17,7 +17,7 @@ from utils.loss_utils import l1_loss, ssim, scale_invariant_depth_loss, mono_nor
 from utils.loss_utils import l1_loss, ssim
 from lpipsPyTorch import lpips
 import json
-
+from utils.mono_prior import estimate_depth, estimate_normal
 from gaussian_renderer import render, network_gui
 import sys
 from scene import Scene, GaussianModel
@@ -118,14 +118,19 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         
         if opt.lambda_mono_depth > 0 and viewpoint_cam.mono_depth is not None:
             surf_depth = render_pkg['surf_depth']
+            with torch.no_grad():
+                depth = estimate_depth(image, device=args.device)
+
             mono_depth_loss = decay * opt.lambda_mono_depth * scale_invariant_depth_loss(
-                surf_depth, viewpoint_cam.mono_depth, mask=valid_mask, alpha=0.5
+                surf_depth, depth, mask=valid_mask, alpha=0.5
             )
         
         if (opt.lambda_mono_normal_l1 > 0 or opt.lambda_mono_normal_cos > 0) and viewpoint_cam.mono_normal is not None:
             # Returns separate L1 and cosine losses
+            with torch.no_grad():
+                normal= estimate_normal(image, device=args.device)
             normal_l1, normal_cos = mono_normal_loss(
-                rend_normal, viewpoint_cam.mono_normal, mask=valid_mask
+                rend_normal, normal, mask=valid_mask
             )
             mono_normal_l1_loss = decay * opt.lambda_mono_normal_l1 * normal_l1
             mono_normal_cos_loss = decay * opt.lambda_mono_normal_cos * normal_cos
