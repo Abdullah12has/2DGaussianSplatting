@@ -187,8 +187,7 @@ def aggregate_depth_points(
             # Render depth and alpha
             render_pkg = render_fn(camera, gaussians, pipe, background)
             depth_map = render_pkg.get('surf_depth', render_pkg.get('depth'))
-            rgb_image = render_pkg['render']
-            
+            gt_image = camera.original_image.cuda()
             # Get accumulated alpha (opacity)
             accum_alpha = render_pkg.get('rend_alpha', None)
             if accum_alpha is None:
@@ -200,8 +199,7 @@ def aggregate_depth_points(
             if depth_map.dim() == 3:
                 depth_map = depth_map.squeeze(0)
             
-            H, W = depth_map.shape
-            
+            H,W = depth_map.shape
             # Importance sampling: prioritize low-alpha regions (under-reconstructed)
             prob = 1 - accum_alpha  # Higher probability for empty space
             prob = prob.flatten()
@@ -236,7 +234,7 @@ def aggregate_depth_points(
             
             # Get depth and color values
             depth_values = depth_map.flatten()[indices]
-            rgb_flat = rgb_image.permute(1, 2, 0).reshape(-1, 3)
+            rgb_flat = gt_image.permute(1, 2, 0).reshape(-1, 3)
             rgb_values = rgb_flat[indices]
             
             # Unproject to world coordinates
@@ -256,9 +254,9 @@ def aggregate_depth_points(
             # Transform to world
             cam_to_world = torch.inverse(camera.world_view_transform)
             R = cam_to_world[:3, :3]
-            t = cam_to_world[:3, 3]
+            t = cam_to_world[3, :3]
             
-            points_world = points_cam @ R.T + t
+            points_world = points_cam @ R + t
             
             all_points.append(points_world)
             all_colors.append(rgb_values)
