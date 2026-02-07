@@ -125,6 +125,9 @@ def safe_state(silent):
         def flush(self):
             old_f.flush()
 
+        def isatty(self):
+            return old_f.isatty()
+
     sys.stdout = F(silent)
 
     random.seed(0)
