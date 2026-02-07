@@ -117,7 +117,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         if rend_alpha is not None:
             valid_mask = (rend_alpha > 0.5).squeeze(0).float()  # [H, W]
         
-        if opt.lambda_mono_depth > 0 and viewpoint_cam.mono_depth is not None:
+        if opt.lambda_mono_depth > 0:
             surf_depth = render_pkg['surf_depth']
             with torch.no_grad():
                 
@@ -128,7 +128,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                 surf_depth, depth, mask=valid_mask, alpha=0.5
             )
         
-        if (opt.lambda_mono_normal_l1 > 0 or opt.lambda_mono_normal_cos > 0) and viewpoint_cam.mono_normal is not None:
+        if opt.lambda_mono_normal_l1 > 0 or opt.lambda_mono_normal_cos > 0:
             # Returns separate L1 and cosine losses
             with torch.no_grad():
                 normal= estimate_normal(np_gt_image, device=args.device)
