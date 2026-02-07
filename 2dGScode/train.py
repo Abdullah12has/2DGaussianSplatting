@@ -241,18 +241,18 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
             # Final reinitialization at densify_until_iter (Mini-Splatting strategy)
             # This resets Gaussian parameters for the final training phase
-            if iteration == opt.densify_until_iter and len(opt.depth_reinit_iters) > 0:
-                from utils.sh_utils import SH2RGB
-                print(f"\n[ITER {iteration}] Final Reinitialization at densify_until_iter (Mini-Splatting)")
-                
-                # Reinit with current positions but reset other parameters
-                # This is exactly what Mini-Splatting does at this point
-                current_xyz = gaussians._xyz.detach().clone()
-                current_rgb = SH2RGB(gaussians._features_dc.detach().squeeze(1))
-                
-                gaussians.reinitialize_from_depth(current_xyz, current_rgb, opt)
-                torch.cuda.empty_cache()
-                viewpoint_stack = None
+            #if iteration == opt.densify_until_iter and len(opt.depth_reinit_iters) > 0:
+            #    from utils.sh_utils import SH2RGB
+            #    print(f"\n[ITER {iteration}] Final Reinitialization at densify_until_iter (Mini-Splatting)")
+            #    
+            #    # Reinit with current positions but reset other parameters
+            #    # This is exactly what Mini-Splatting does at this point
+            #    current_xyz = gaussians._xyz.detach().clone()
+            #    current_rgb = SH2RGB(gaussians._features_dc.detach().squeeze(1))
+            #    
+            #    gaussians.reinitialize_from_depth(current_xyz, current_rgb, opt)
+            #    torch.cuda.empty_cache()
+            #    viewpoint_stack = None
 
 
             # Optimizer step
