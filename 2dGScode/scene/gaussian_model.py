@@ -273,7 +273,7 @@ class GaussianModel:
         optimizable_tensors = self.replace_tensor_to_optimizer(opacities_new, "opacity")
         self._opacity = optimizable_tensors["opacity"]
 
-    def reinitialize_from_depth(self, depth_points, depth_colors, training_args):
+    def reinitialize_from_depth(self, pcd, depth_colors, training_args):
         """
         Reinitialize Gaussians using depth-sampled points (Mini-Splatting strategy).
         
@@ -291,41 +291,40 @@ class GaussianModel:
         print(f"[Depth Reinitialization] Replacing ALL Gaussians with {n_new} depth-sampled points")
         
         # Initialize ALL Gaussians from depth points (complete replacement)
-        new_xyz = depth_points.float().cuda()
-        new_colors = RGB2SH(depth_colors.float().cuda())
-        
-        new_features = torch.zeros((n_new, 3, (self.max_sh_degree + 1) ** 2)).float().cuda()
-        new_features[:, :3, 0] = new_colors
-        new_features_dc = new_features[:, :, 0:1].transpose(1, 2).contiguous()
-        new_features_rest = new_features[:, :, 1:].transpose(1, 2).contiguous()
-        
-        # Compute scales based on local density
-        # NOTE: distCUDA2 expects points on CUDA already
-        from simple_knn._C import distCUDA2
-        dist2 = torch.clamp_min(distCUDA2(new_xyz), 0.0000001)
-        # IMPORTANT: 2DGS uses 2D scaling [N, 2], not 3D scaling [N, 3]
-        new_scaling = torch.log(torch.sqrt(dist2))[..., None].repeat(1, 2)
-        
-        # Use identity quaternion like Mini-Splatting for consistency
-        new_rotation = torch.zeros((n_new, 4), device="cuda")
-        new_rotation[:, 0] = 1  # Identity quaternion [1, 0, 0, 0]
-        
-        new_opacity = self.inverse_opacity_activation(
-            0.1 * torch.ones((n_new, 1), dtype=torch.float, device="cuda")
-        )
-        
-        # Complete replacement - set all parameters
-        self._xyz = nn.Parameter(new_xyz.requires_grad_(True))
-        self._features_dc = nn.Parameter(new_features_dc.requires_grad_(True))
-        self._features_rest = nn.Parameter(new_features_rest.requires_grad_(True))
-        self._scaling = nn.Parameter(new_scaling.requires_grad_(True))
-        self._rotation = nn.Parameter(new_rotation.requires_grad_(True))
-        self._opacity = nn.Parameter(new_opacity.requires_grad_(True))
+        #new_xyz = depth_points.float().cuda()
+        #new_colors = RGB2SH(depth_colors.float().cuda())
+        #
+        #new_features = torch.zeros((n_new, 3, (self.max_sh_degree + 1) ** 2)).float().cuda()
+        #new_features[:, :3, 0] = new_colors
+        #new_features_dc = new_features[:, :, 0:1].transpose(1, 2).contiguous()
+        #new_features_rest = new_features[:, :, 1:].transpose(1, 2).contiguous()
+        fused_point_cloud = torch.tensor(np.asarray(pcd.points)).float().cuda()
+        fused_color = RGB2SH(torch.tensor(np.asarray(pcd.colors)).float().cuda())
+        features = torch.zeros((fused_color.shape[0], 3, (self.max_sh_degree + 1) ** 2)).float().cuda()
+        features[:, :3, 0 ] = fused_color
+        features[:, 3:, 1:] = 0.0
+
+        print("Number of points at initialisation : ", fused_point_cloud.shape[0])
+
+        dist2 = torch.clamp_min(distCUDA2(torch.from_numpy(np.asarray(pcd.points)).float().cuda()), 0.0000001)
+        scales = torch.log(torch.sqrt(dist2))[...,None].repeat(1, 2)
+        # Use identity quaternion like Mini-Splatting
+        rots = torch.zeros((fused_point_cloud.shape[0], 4), device="cuda")
+        rots[:, 0] = 1  # Identity quaternion [1, 0, 0, 0]
+
+        opacities = self.inverse_opacity_activation(0.1 * torch.ones((fused_point_cloud.shape[0], 1), dtype=torch.float, device="cuda"))
+
+        self._xyz = nn.Parameter(fused_point_cloud.requires_grad_(True))
+        self._features_dc = nn.Parameter(features[:,:,0:1].transpose(1, 2).contiguous().requires_grad_(True))
+        self._features_rest = nn.Parameter(features[:,:,1:].transpose(1, 2).contiguous().requires_grad_(True))
+        self._scaling = nn.Parameter(scales.requires_grad_(True))
+        self._rotation = nn.Parameter(rots.requires_grad_(True))
+        self._opacity = nn.Parameter(opacities.requires_grad_(True))
         
         # Reset auxiliary variables
         self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
-        self.xyz_gradient_accum = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
-        self.denom = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
+        #self.xyz_gradient_accum = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
+        #self.denom = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
         
         # NOTE: spatial_lr_scale should already be set from initial create_from_pcd
         # Rebuild optimizer with new parameters
