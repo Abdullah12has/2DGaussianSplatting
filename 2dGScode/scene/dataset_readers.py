@@ -294,6 +294,9 @@ def readCamerasFromTransforms1(path, transforms_file, white_background, image_su
     cam_infos = []
 
     with open(os.path.join(path, transforms_file)) as json_file:
+        mono_depth_dir = os.path.join(path, "mono_priors", "mono_depth")
+        mono_normal_dir = os.path.join(path, "mono_priors", "mono_normal")
+        has_mono_priors = os.path.exists(mono_depth_dir) and os.path.exists(mono_normal_dir)
         contents = json.load(json_file)
         fl_x = contents["fl_x"]
         fl_y = contents["fl_y"]
@@ -321,6 +324,22 @@ def readCamerasFromTransforms1(path, transforms_file, white_background, image_su
             T = w2c[:3, 3]
             image_path = os.path.join(path, cam_name)
             image_name = Path(cam_name).stem
+            if has_mono_priors:
+
+                depth_path = os.path.join(mono_depth_dir, f"{image_name}.npy")
+                normal_path = os.path.join(mono_normal_dir, f"{image_name}.npy")
+                if os.path.exists(depth_path):
+                    mono_depth = np.load(depth_path)
+                else:
+                    mono_depth = None
+                if os.path.exists(normal_path):
+                    mono_normal = np.load(normal_path)
+                    
+                else:
+                    mono_normal = None
+            else:
+                mono_depth = None
+                mono_normal = None
             image = Image.open(image_path)
 
             im_data = np.array(image.convert("RGBA"))
@@ -337,7 +356,7 @@ def readCamerasFromTransforms1(path, transforms_file, white_background, image_su
             FovX = fovx
 
             cam_infos.append(CameraInfo(uid=idx, R=R, T=T, FovY=FovY, FovX=FovX, image=image,
-                            image_path=image_path, image_name=image_name, width=image.size[0], height=image.size[1]))
+                            image_path=image_path, image_name=image_name, width=image.size[0], height=image.size[1], mono_depth=mono_depth if has_mono_priors else None, mono_normal=mono_normal if has_mono_priors else None))
             
     return cam_infos
 def readNerfSyntheticInfo(args, extension=".png"):

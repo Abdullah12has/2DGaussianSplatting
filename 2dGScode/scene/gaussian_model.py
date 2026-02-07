@@ -550,6 +550,8 @@ class GaussianModel:
 
         optimizable_tensors = {}
         for group in self.optimizer.param_groups:
+            if group["name"] == "exposure":
+                continue  # Skip exposure if it exists, as it's not being modified here
             assert len(group["params"]) == 1
             tensor = tensors_dict[group["name"]]
             stored_state = self.optimizer.state.get(group['params'][0], None)

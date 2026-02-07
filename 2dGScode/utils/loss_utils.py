@@ -162,7 +162,7 @@ def scale_invariant_depth_loss(pred_depth, mono_depth, mask=None, alpha=0.5):
         if mask.dim() == 3:
             mask = mask.squeeze(0)
         mask_flat = mask.flatten()
-        valid = mask_flat & (pred_flat > 0) & ~torch.isnan(pred_flat) & ~torch.isnan(mono_flat)
+        valid = mask_flat.bool() & (pred_flat > 0) & ~torch.isnan(pred_flat) & ~torch.isnan(mono_flat)
     else:
         valid = (pred_flat > 0) & ~torch.isnan(pred_flat) & ~torch.isnan(mono_flat)
     

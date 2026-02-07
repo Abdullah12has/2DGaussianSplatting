@@ -44,7 +44,7 @@ if __name__ == "__main__":
     all_combinations = []
     for r in range(len(mod_list) + 1):
         all_combinations.extend(combinations(mod_list, r))
-    lambda_dist = {'7b6477cb95': 10, 'c50d2d1d42': 10, 'cc5237fd77': 10, '0b031f3119': 100} if subscene == 'dslr' else {'7b6477cb95': 10, 'c50d2d1d42': 10, 'cc5237fd77': 10, '0b031f3119': 10}
+    lambda_dist = {'7b6477cb95': 10, 'c50d2d1d42': 10, 'cc5237fd77': 1, '0b031f3119': 100} if subscene == 'dslr' else {'7b6477cb95': 10, 'c50d2d1d42': 10, 'cc5237fd77': 1, '0b031f3119': 10}
     subscene__options = {
         'iphone':  {'train':'--depth_ratio 1 --images rgb --test_images ../dslr/resized_undistorted_images --train_transforms_file nerfstudio/transforms.json --test_transforms_file ../dslr/nerfstudio/transforms_undistorted.json --eval --port 6010 ',
                     'render':'--depth_ratio 1 --images ../dslr/resized_undistorted_images --test_images ../dslr/resized_undistorted_images --train_transforms_file ../dslr/nerfstudio/transforms_undistorted.json --test_transforms_file ../dslr/nerfstudio/transforms_undistorted.json --eval --skip_train --skip_test --voxel_size 0.02 --depth_trunc 7 --sdf_trunc 0.1 --compute_chamfer --iteration 30000'},
@@ -59,7 +59,7 @@ if __name__ == "__main__":
     #file_list = read_file_to_list_clean(os.path.join(dataset_path, "to_download.txt"))
     #val_list = read_file_to_list_clean(os.path.join(dataset_path, "splits/nvs_sem_val.txt"))
     #downloaded_val_list = [line for line in file_list if line in val_list]
-    all_combinations= [i for i in all_combinations if 'depth Gaussian reinitialization' in i ] 
+    #all_combinations= [i for i in all_combinations if 'depth Gaussian reinitialization' in i ] 
     print("Filtered combinations to test: ", all_combinations)
     for comb in all_combinations:
         for k in modification_opts.keys():
@@ -81,6 +81,7 @@ if __name__ == "__main__":
         render_cmd = f'python 2dGScode/render.py --source_path {source_path} --model_path {model_path}' + ' ' + subscene__options[subscene]['render']
         print("Executing training command: ", train_cmd)
         os.system(train_cmd)
-        print("Executing rendering command: ", render_cmd)
-        os.system(render_cmd)
+        
+        #print("Executing rendering command: ", render_cmd)
+        #os.system(render_cmd)
     #print('scenes to process: ', downloaded_val_list)
