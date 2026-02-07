@@ -118,8 +118,8 @@ def estimate_depth(image, device="cuda"):
         align_corners=False,
     )
     
-    depth = prediction.squeeze().cpu().numpy()
-    return depth
+    depth = prediction.squeeze()  # [H, W] tensor
+    return depth.to(device)
 
 
 def estimate_normal_from_depth(depth, mask=None):
@@ -165,7 +165,9 @@ def estimate_normal(image, device="cuda"):
     if model is None:
         # Fallback: estimate from depth
         depth = estimate_depth(image, device)
-        return estimate_normal_from_depth(depth)
+        normal_np = estimate_normal_from_depth(depth.cpu().numpy())
+        # Convert [H, W, 3] numpy to [3, H, W] tensor
+        return torch.from_numpy(normal_np).permute(2, 0, 1).float().to(device)
     
     if isinstance(image, np.ndarray):
         image = Image.fromarray(image.astype(np.uint8))
@@ -193,15 +195,13 @@ def estimate_normal(image, device="cuda"):
         align_corners=False,
     )
     
-    # Convert to numpy, map from [0,1] to [-1,1]
-    normal = normal_pred.squeeze().permute(1, 2, 0).cpu().numpy()
-    normal = normal * 2 - 1
-    
-    # Normalize
-    norm = np.linalg.norm(normal, axis=-1, keepdims=True)
-    normal = normal / (norm + 1e-8)
-    
-    return normal
+    # Map from [0,1] to [-1,1], keep as [3, H, W] tensor
+    normal = normal_pred.squeeze() * 2 - 1
+
+    # Normalize along channel dim
+    normal = torch.nn.functional.normalize(normal, p=2, dim=0)
+
+    return normal.to(device)
 
 
 class MonoPriorProcessor:

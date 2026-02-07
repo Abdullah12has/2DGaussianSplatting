@@ -64,6 +64,11 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     ema_loss_for_log = 0.0
     ema_dist_for_log = 0.0
     ema_normal_for_log = 0.0
+    ema_mono_depth_for_log = 0.0
+    ema_mono_normal_l1_for_log = 0.0
+    ema_mono_normal_cos_for_log = 0.0
+    ema_opacity_reg_for_log = 0.0
+    ema_scale_reg_for_log = 0.0
 
     progress_bar = tqdm(range(first_iter, opt.iterations), desc="Training progress")
     first_iter += 1
@@ -157,11 +162,11 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             ema_loss_for_log = 0.4 * loss.item() + 0.6 * ema_loss_for_log
             ema_dist_for_log = 0.4 * dist_loss.item() + 0.6 * ema_dist_for_log
             ema_normal_for_log = 0.4 * normal_loss.item() + 0.6 * ema_normal_for_log
-            ema_mono_depth_for_log = 0.4 * mono_depth_loss.item() + 0.6 * ema_loss_for_log
-            ema_mono_normal_l1_for_log = 0.4 * mono_normal_l1_loss.item() + 0.6 * ema_loss_for_log
-            ema_mono_normal_cos_for_log = 0.4 * mono_normal_cos_loss.item() + 0.6 * ema_loss_for_log
-            ema_opacity_reg_for_log = 0.4 * opacity_reg_loss + 0.6 * ema_loss_for_log
-            ema_scale_reg_for_log = 0.4 * scale_reg_loss + 0.6 * ema_loss_for_log
+            ema_mono_depth_for_log = 0.4 * mono_depth_loss.item() + 0.6 * ema_mono_depth_for_log
+            ema_mono_normal_l1_for_log = 0.4 * mono_normal_l1_loss.item() + 0.6 * ema_mono_normal_l1_for_log
+            ema_mono_normal_cos_for_log = 0.4 * mono_normal_cos_loss.item() + 0.6 * ema_mono_normal_cos_for_log
+            ema_opacity_reg_for_log = 0.4 * float(opacity_reg_loss) + 0.6 * ema_opacity_reg_for_log
+            ema_scale_reg_for_log = 0.4 * float(scale_reg_loss) + 0.6 * ema_scale_reg_for_log
 
 
             if iteration % 10 == 0:
@@ -169,11 +174,12 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                     "Loss": f"{ema_loss_for_log:.{5}f}",
                     "distort": f"{ema_dist_for_log:.{5}f}",
                     "normal": f"{ema_normal_for_log:.{5}f}",
-                    #"mono_depth": f"{ema_mono_depth_for_log:.{5}f}",
-                    #"mono_normal_l1": f"{ema_mono_normal_l1_for_log:.{5}f}",
-                    #"mono_normal_cos": f"{ema_mono_normal_cos_for_log:.{5}f}",
-                    #"opacity_reg": f"{ema_opacity_reg_for_log:.{5}f}",
-                    #"scale_reg": f"{ema_scale_reg_for_log:.{5}f}",
+                    "PSNR": f"{psnr(image, gt_image).mean().item():.{3}f}",
+                    "mono_depth": f"{ema_mono_depth_for_log:.{5}f}",
+                    "mono_normal_l1": f"{ema_mono_normal_l1_for_log:.{5}f}",
+                    "mono_normal_cos": f"{ema_mono_normal_cos_for_log:.{5}f}",
+                    "opacity_reg": f"{ema_opacity_reg_for_log:.{5}f}",
+                    "scale_reg": f"{ema_scale_reg_for_log:.{5}f}",
                     "Points": f"{len(gaussians.get_xyz)}"
                 }
                 progress_bar.set_postfix(loss_dict)
