@@ -87,6 +87,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
         
         gt_image = viewpoint_cam.original_image.cuda()
+        np_gt_image = viewpoint_cam.original_image.cpu().numpy().transpose(1, 2, 0).astype('uint8')
         Ll1 = l1_loss(image, gt_image)
         loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image))
         
@@ -119,7 +120,9 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         if opt.lambda_mono_depth > 0 and viewpoint_cam.mono_depth is not None:
             surf_depth = render_pkg['surf_depth']
             with torch.no_grad():
-                depth = estimate_depth(image, device=args.device)
+                
+                depth = estimate_depth(np_gt_image, device=args.device)
+                
 
             mono_depth_loss = decay * opt.lambda_mono_depth * scale_invariant_depth_loss(
                 surf_depth, depth, mask=valid_mask, alpha=0.5
@@ -128,7 +131,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         if (opt.lambda_mono_normal_l1 > 0 or opt.lambda_mono_normal_cos > 0) and viewpoint_cam.mono_normal is not None:
             # Returns separate L1 and cosine losses
             with torch.no_grad():
-                normal= estimate_normal(image, device=args.device)
+                normal= estimate_normal(np_gt_image, device=args.device)
             normal_l1, normal_cos = mono_normal_loss(
                 rend_normal, normal, mask=valid_mask
             )
