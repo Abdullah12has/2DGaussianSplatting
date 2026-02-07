@@ -54,16 +54,19 @@ if __name__ == "__main__":
 
     print("Total combinations to test: ", all_combinations)
     print("Total number of combinations: ", len(all_combinations))
-    modification_opts = {'exposure_optimization':'--use_exposure_optimization', 'MCMC':'--mcmc', 'depth Gaussian reinitialization':'--depth_reinit_iters 2000 5000 10000 --reinit_target_points_ratio 1.0', 'normal_depth_prior':'  --lambda_mono_depth 0.1 --lambda_mono_normal_l1 0.05 --lambda_mono_normal_cos 0.05 --mono_prior_decay_end 15000'}
+    modification_opts = {'exposure_optimization':'--use_exposure_optimization', 'MCMC':'--mcmc', 'depth Gaussian reinitialization':'--depth_reinit_iters 5000 8000 11000 --reinit_target_points_ratio 0.8', 'normal_depth_prior':'  --lambda_mono_depth 0.1 --lambda_mono_normal_l1 0.05 --lambda_mono_normal_cos 0.05 --mono_prior_decay_end 15000'}
     #file_list = read_file_to_list_clean(os.path.join(dataset_path, "to_download.txt"))
     #val_list = read_file_to_list_clean(os.path.join(dataset_path, "splits/nvs_sem_val.txt"))
     #downloaded_val_list = [line for line in file_list if line in val_list]
+    all_combinations= [i for i in all_combinations if 'depth Gaussian reinitialization' in i ]
+    print("Filtered combinations to test: ", all_combinations)
     for comb in all_combinations:
         for k in modification_opts.keys():
             if k in comb:
                 print(f'\033[92m{k} enabled\033[0m')
             else:
                 print(f'\033[91m{k} disabled\033[0m')
+        
         source_path = os.path.join(dataset_path,'data',scene, subscene)
         model_path = os.path.join(args.output_path,scene, subscene, '-'.join([opt.replace(' ','_') for opt in comb]) if len(comb)>0 else "base_model")
         if 'MCMC' in comb:
