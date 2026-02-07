@@ -286,7 +286,7 @@ class GaussianModel:
         """
         from utils.sh_utils import RGB2SH
         
-        n_new = depth_points.shape[0]
+        #n_new = depth_points.shape[0]
         
         print(f"[Depth Reinitialization] Replacing ALL Gaussians with {n_new} depth-sampled points")
         

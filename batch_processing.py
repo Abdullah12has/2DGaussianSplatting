@@ -59,7 +59,7 @@ if __name__ == "__main__":
     #file_list = read_file_to_list_clean(os.path.join(dataset_path, "to_download.txt"))
     #val_list = read_file_to_list_clean(os.path.join(dataset_path, "splits/nvs_sem_val.txt"))
     #downloaded_val_list = [line for line in file_list if line in val_list]
-    all_combinations= [i for i in all_combinations if 'depth Gaussian reinitialization' in i ]
+    all_combinations= [i for i in all_combinations if 'depth Gaussian reinitialization' in i or len(i)>1] 
     print("Filtered combinations to test: ", all_combinations)
     for comb in all_combinations:
         for k in modification_opts.keys():
