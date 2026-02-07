@@ -119,7 +119,7 @@ class OptimizationParams(ParamGroup):
         self.mono_prior_decay_end = 15000  # End step for exponential decay (MonoSDF uses decay)
         
         # Depth reinitialization (Task 2) - Mini-Splatting strategy
-        self.depth_reinit_iters = []  # List of iterations to reinitialize (e.g., [2000, 5000, 10000])
+        self.depth_reinit_every = -1   # List of iterations to reinitialize (e.g., [2000, 5000, 10000])
         self.reinit_target_points_ratio = 0.8 # Target total points for reinitialization (3.5M default)
         
         # MCMC parameters

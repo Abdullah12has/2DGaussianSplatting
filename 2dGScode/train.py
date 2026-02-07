@@ -212,32 +212,32 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                     if iteration % opt.opacity_reset_interval == 0 or (dataset.white_background and iteration == opt.densify_from_iter):
                         gaussians.reset_opacity()
 
-            # Depth Reinitialization (Task 2) - Mini-Splatting strategy
-            if len(opt.depth_reinit_iters) > 0 and iteration in opt.depth_reinit_iters:
-                from utils.depth_reinit import aggregate_depth_points, filter_duplicate_points
-                print(f"\n[ITER {iteration}] Depth Reinitialization (Mini-Splatting)")
-                
-                # Use ALL training cameras (Mini-Splatting uses all views)
-                train_cameras = scene.getTrainCameras()
-                
-                # Aggregate depth points with importance sampling
-                depth_points, depth_colors = aggregate_depth_points(
-                    train_cameras,
-                    gaussians, pipe, background, render,
-                    target_total_points=opt.reinit_target_points_ratio * (gaussians.get_xyz.shape[0]),  # Scale target points by current number of Gaussians
-                )
-                
-                # Filter duplicate points (optional, for efficiency)
-                depth_points, depth_colors = filter_duplicate_points(depth_points, depth_colors)
-                
-                # Complete replacement - discard all old Gaussians
-                gaussians.reinitialize_from_depth(
-                    depth_points, depth_colors, opt
-                )
-                
-                # Clear cache and reset viewpoint stack
-                torch.cuda.empty_cache()
-                viewpoint_stack = None
+                # Depth Reinitialization (Task 2) - Mini-Splatting strategy
+                if opt.depth_reinit_every > 0 and iteration % opt.depth_reinit_every == 0:
+                    from utils.depth_reinit import aggregate_depth_points, filter_duplicate_points
+                    print(f"\n[ITER {iteration}] Depth Reinitialization (Mini-Splatting)")
+                    
+                    # Use ALL training cameras (Mini-Splatting uses all views)
+                    train_cameras = scene.getTrainCameras()
+                    
+                    # Aggregate depth points with importance sampling
+                    depth_points, depth_colors = aggregate_depth_points(
+                        train_cameras,
+                        gaussians, pipe, background, render,
+                        target_total_points=opt.reinit_target_points_ratio * (gaussians.get_xyz.shape[0]),  # Scale target points by current number of Gaussians
+                    )
+                    
+                    # Filter duplicate points (optional, for efficiency)
+                    depth_points, depth_colors = filter_duplicate_points(depth_points, depth_colors)
+                    
+                    # Complete replacement - discard all old Gaussians
+                    gaussians.reinitialize_from_depth(
+                        depth_points, depth_colors, opt
+                    )
+                    
+                    # Clear cache and reset viewpoint stack
+                    torch.cuda.empty_cache()
+                    viewpoint_stack = None
 
             # Final reinitialization at densify_until_iter (Mini-Splatting strategy)
             # This resets Gaussian parameters for the final training phase
