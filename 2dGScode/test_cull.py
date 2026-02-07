@@ -74,7 +74,7 @@ if __name__ == "__main__":
     for viewpoint_camera in tqdm(scene.getTrainCameras(), desc="Culling progress"):
         sampled_masks = []
         with torch.no_grad():
-            
+            print (viewpoint_camera.original_image.shape)
             w2c=viewpoint_camera.world_view_transform
             cam_points = vertices@w2c
             print(cam_points[0])
