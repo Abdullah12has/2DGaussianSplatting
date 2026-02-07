@@ -146,7 +146,9 @@ class GaussianModel:
 
         dist2 = torch.clamp_min(distCUDA2(torch.from_numpy(np.asarray(pcd.points)).float().cuda()), 0.0000001)
         scales = torch.log(torch.sqrt(dist2))[...,None].repeat(1, 2)
-        rots = torch.rand((fused_point_cloud.shape[0], 4), device="cuda")
+        # Use identity quaternion like Mini-Splatting
+        rots = torch.zeros((fused_point_cloud.shape[0], 4), device="cuda")
+        rots[:, 0] = 1  # Identity quaternion [1, 0, 0, 0]
 
         opacities = self.inverse_opacity_activation(0.1 * torch.ones((fused_point_cloud.shape[0], 1), dtype=torch.float, device="cuda"))
 
@@ -304,9 +306,9 @@ class GaussianModel:
         # IMPORTANT: 2DGS uses 2D scaling [N, 2], not 3D scaling [N, 3]
         new_scaling = torch.log(torch.sqrt(dist2))[..., None].repeat(1, 2)
         
-        # Use RANDOM rotations like create_from_pcd (not identity)
-        # This allows more diverse orientations for the 2D splats
-        new_rotation = torch.rand((n_new, 4), device="cuda")
+        # Use identity quaternion like Mini-Splatting for consistency
+        new_rotation = torch.zeros((n_new, 4), device="cuda")
+        new_rotation[:, 0] = 1  # Identity quaternion [1, 0, 0, 0]
         
         new_opacity = self.inverse_opacity_activation(
             0.1 * torch.ones((n_new, 1), dtype=torch.float, device="cuda")

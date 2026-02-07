@@ -61,10 +61,11 @@ def unproject_depth_to_points(
     points_cam_flat = points_cam.reshape(-1, 3)
     
     # Apply rotation and translation
+    # NOTE: world_view_transform is column-major, so translation is in row 3
     R = cam_to_world[:3, :3]
-    t = cam_to_world[:3, 3]
+    t = cam_to_world[3, :3]
     
-    points_world = points_cam_flat @ R.T + t
+    points_world = points_cam_flat @ R + t
     
     # Get colors if provided
     colors = None
@@ -142,11 +143,12 @@ def sample_points_from_depth(
     points_cam = torch.stack([x_cam, y_cam, depth_values], dim=-1)
     
     # Transform to world
+    # NOTE: world_view_transform is column-major, so translation is in row 3
     cam_to_world = torch.inverse(camera.world_view_transform)
     R = cam_to_world[:3, :3]
-    t = cam_to_world[:3, 3]
+    t = cam_to_world[3, :3]
     
-    points_world = points_cam @ R.T + t
+    points_world = points_cam @ R + t
     
     return points_world, rgb_values
 
