@@ -70,9 +70,25 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     ema_opacity_reg_for_log = 0.0
     ema_scale_reg_for_log = 0.0
 
+    # Precompute monocular priors for all training cameras
+    mono_depth_cache = {}
+    mono_normal_cache = {}
+    need_depth = opt.lambda_mono_depth > 0
+    need_normal = opt.lambda_mono_normal_l1 > 0 or opt.lambda_mono_normal_cos > 0
+    if need_depth or need_normal:
+        train_cameras = scene.getTrainCameras()
+        print(f"Precomputing monocular priors for {len(train_cameras)} cameras...")
+        for cam in tqdm(train_cameras, desc="Monocular priors"):
+            np_img = cam.original_image.cpu().numpy().transpose(1, 2, 0).astype('uint8')
+            if need_depth:
+                mono_depth_cache[cam.image_name] = estimate_depth(np_img, device="cuda").cpu()
+            if need_normal:
+                mono_normal_cache[cam.image_name] = estimate_normal(np_img, device="cuda").cpu()
+        print("Monocular priors cached.")
+
     progress_bar = tqdm(range(first_iter, opt.iterations), desc="Training progress")
     first_iter += 1
-    for iteration in range(first_iter, opt.iterations + 1):        
+    for iteration in range(first_iter, opt.iterations + 1):
 
         iter_start.record()
 
@@ -92,7 +108,6 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
         
         gt_image = viewpoint_cam.original_image.cuda()
-        np_gt_image = viewpoint_cam.original_image.cpu().numpy().transpose(1, 2, 0).astype('uint8')
         Ll1 = l1_loss(image, gt_image)
         loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image))
         
@@ -124,19 +139,14 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         
         if opt.lambda_mono_depth > 0:
             surf_depth = render_pkg['surf_depth']
-            with torch.no_grad():
-                
-                depth = estimate_depth(np_gt_image, device="cuda")
-                
+            depth = mono_depth_cache[viewpoint_cam.image_name].cuda()
 
             mono_depth_loss = decay * opt.lambda_mono_depth * scale_invariant_depth_loss(
                 surf_depth, depth, mask=valid_mask, alpha=0.5
             )
-        
+
         if opt.lambda_mono_normal_l1 > 0 or opt.lambda_mono_normal_cos > 0:
-            # Returns separate L1 and cosine losses
-            with torch.no_grad():
-                normal = estimate_normal(np_gt_image, device="cuda")
+            normal = mono_normal_cache[viewpoint_cam.image_name].cuda()
             normal_l1, normal_cos = mono_normal_loss(
                 rend_normal, normal, mask=valid_mask
             )
