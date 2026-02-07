@@ -121,7 +121,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             surf_depth = render_pkg['surf_depth']
             with torch.no_grad():
                 
-                depth = estimate_depth(np_gt_image, device=args.device)
+                depth = estimate_depth(np_gt_image, device="cuda")
                 
 
             mono_depth_loss = decay * opt.lambda_mono_depth * scale_invariant_depth_loss(
@@ -131,7 +131,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         if opt.lambda_mono_normal_l1 > 0 or opt.lambda_mono_normal_cos > 0:
             # Returns separate L1 and cosine losses
             with torch.no_grad():
-                normal= estimate_normal(np_gt_image, device=args.device)
+                normal = estimate_normal(np_gt_image, device="cuda")
             normal_l1, normal_cos = mono_normal_loss(
                 rend_normal, normal, mask=valid_mask
             )
