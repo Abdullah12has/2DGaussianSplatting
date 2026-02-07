@@ -210,10 +210,11 @@ def aggregate_depth_points(
             
             prob = prob * valid_mask.float()
             
-            if prob.sum() < 1e-6:
+            prob_sum = prob.sum()
+            if prob_sum < 1e-6:
                 continue  # Skip if no valid points
             
-            prob = prob / prob.sum()  # Normalize to probability distribution
+            prob = prob / prob_sum  # Normalize to probability distribution
             
             # Adaptive sampling: distribute target points across views
             factor = target_total_points / (H * W * num_views)

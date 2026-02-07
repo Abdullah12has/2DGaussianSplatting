@@ -298,13 +298,15 @@ class GaussianModel:
         new_features_rest = new_features[:, :, 1:].transpose(1, 2).contiguous()
         
         # Compute scales based on local density
+        # NOTE: distCUDA2 expects points on CUDA already
         from simple_knn._C import distCUDA2
         dist2 = torch.clamp_min(distCUDA2(new_xyz), 0.0000001)
         # IMPORTANT: 2DGS uses 2D scaling [N, 2], not 3D scaling [N, 3]
         new_scaling = torch.log(torch.sqrt(dist2))[..., None].repeat(1, 2)
         
-        new_rotation = torch.zeros((n_new, 4), device="cuda")
-        new_rotation[:, 0] = 1  # Identity quaternion
+        # Use RANDOM rotations like create_from_pcd (not identity)
+        # This allows more diverse orientations for the 2D splats
+        new_rotation = torch.rand((n_new, 4), device="cuda")
         
         new_opacity = self.inverse_opacity_activation(
             0.1 * torch.ones((n_new, 1), dtype=torch.float, device="cuda")
@@ -323,6 +325,7 @@ class GaussianModel:
         self.xyz_gradient_accum = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
         self.denom = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
         
+        # NOTE: spatial_lr_scale should already be set from initial create_from_pcd
         # Rebuild optimizer with new parameters
         self.training_setup(training_args)
         
