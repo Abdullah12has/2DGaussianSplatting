@@ -298,8 +298,8 @@ class GaussianModel:
         #new_features[:, :3, 0] = new_colors
         #new_features_dc = new_features[:, :, 0:1].transpose(1, 2).contiguous()
         #new_features_rest = new_features[:, :, 1:].transpose(1, 2).contiguous()
-        fused_point_cloud = torch.tensor(np.asarray(pcd.points)).float().cuda()
-        fused_color = RGB2SH(torch.tensor(np.asarray(pcd.colors)).float().cuda())
+        fused_point_cloud = torch.tensor(np.asarray(pcd)).float().cuda()
+        fused_color = RGB2SH(torch.tensor(np.asarray(depth_colors)).float().cuda())
         features = torch.zeros((fused_color.shape[0], 3, (self.max_sh_degree + 1) ** 2)).float().cuda()
         features[:, :3, 0 ] = fused_color
         features[:, 3:, 1:] = 0.0
