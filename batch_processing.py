@@ -40,7 +40,7 @@ if __name__ == "__main__":
     dataset_path = args.dataset_path
     subscene = args.subscene
     scene = args.scene
-    modifications= {'iphone': ['exposure_optimization','MCMC','depth Gaussian reinitialization','normal_depth_prior'], 'dslr': ['MCMC','depth Gaussian reinitialization','normal_depth_prior']}
+    modifications= {'iphone': ['exposure_optimization'], 'dslr': ['MCMC','depth Gaussian reinitialization','normal_depth_prior']}
     mod_list = modifications[subscene]
     all_combinations = []
     for r in range(len(mod_list) + 1):
@@ -60,7 +60,7 @@ if __name__ == "__main__":
     #file_list = read_file_to_list_clean(os.path.join(dataset_path, "to_download.txt"))
     #val_list = read_file_to_list_clean(os.path.join(dataset_path, "splits/nvs_sem_val.txt"))
     #downloaded_val_list = [line for line in file_list if line in val_list]
-    all_combinations= [i for i in all_combinations if 'depth Gaussian reinitialization' in i or(('normal_depth_prior' in i) and len(i) > 1) ] # Filter combinations to only those that include at least one of the modifications
+    #all_combinations= [i for i in all_combinations if 'MCMC' in i and len(i)==1] # Filter combinations to only those that include at least one of the modifications
     print("Filtered combinations to test: ", len(all_combinations))
     for comb in all_combinations:
         for k in modification_opts.keys():

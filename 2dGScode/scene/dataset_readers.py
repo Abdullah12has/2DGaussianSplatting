@@ -295,7 +295,7 @@ def readCamerasFromTransforms(path, transformsfile, white_background, extension=
     return cam_infos
 def readCamerasFromTransforms1(path, transforms_file, white_background, image_subdir, max_samples=1000, frame_entry="frames", test=False,colmap_folder="colmap"):
     cam_infos = []
-    
+    colmap_folder= Path(image_subdir).parent / colmap_folder
     with open(os.path.join(path, transforms_file)) as json_file:
         mono_depth_dir = os.path.join(path, "mono_priors", "mono_depth")
         mono_normal_dir = os.path.join(path, "mono_priors", "mono_normal")
@@ -318,6 +318,7 @@ def readCamerasFromTransforms1(path, transforms_file, white_background, image_su
             cam_extrinsics = read_extrinsics_text(cameras_extrinsic_file)
         print("Number of {} frames: {}".format("test" if test else "train", len(frames)))
         frames = [str(i['file_path']) for i in frames]
+        print("Frames to read: ", len(frames))
 
         for idx, key in enumerate(cam_extrinsics):
             sys.stdout.write('\r')
@@ -328,7 +329,7 @@ def readCamerasFromTransforms1(path, transforms_file, white_background, image_su
         
             if not(extr.name in frames):
                 continue
-
+            
             R = np.transpose(qvec2rotmat(extr.qvec))
             T = np.array(extr.tvec)
 
