@@ -94,7 +94,7 @@ if __name__ == "__main__":
             attempt = 0
 
             print("Executing rendering command: ", render_cmd)
-            while (attempt==0 or not os.path.exists(os.path.join(model_path, 'train_30000', 'fuse_post.ply'))):
+            while (attempt==0 or not os.path.exists(os.path.join(model_path, 'train','ours_30000', 'fuse_post.ply'))):
                 os.system(render_cmd)
                 attempt += 1
                 if attempt >= 5:
