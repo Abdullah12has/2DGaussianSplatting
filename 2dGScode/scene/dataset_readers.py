@@ -11,6 +11,9 @@
 
 import os
 import sys
+if not hasattr(sys.stdout, 'isatty'):
+    sys.stdout.isatty = lambda: False
+from time import sleep
 from PIL import Image
 from typing import NamedTuple
 from scene.colmap_loader import read_extrinsics_text, read_intrinsics_text, qvec2rotmat, \
@@ -290,10 +293,14 @@ def readCamerasFromTransforms(path, transformsfile, white_background, extension=
                             image_path=image_path, image_name=image_name, width=image.size[0], height=image.size[1]))
             
     return cam_infos
-def readCamerasFromTransforms1(path, transforms_file, white_background, image_subdir, max_samples=1000, frame_entry="frames", test=False):
+def readCamerasFromTransforms1(path, transforms_file, white_background, image_subdir, max_samples=1000, frame_entry="frames", test=False,colmap_folder="colmap"):
     cam_infos = []
-
+    
     with open(os.path.join(path, transforms_file)) as json_file:
+        mono_depth_dir = os.path.join(path, "mono_priors", "mono_depth")
+        mono_normal_dir = os.path.join(path, "mono_priors", "mono_normal")
+        has_mono_priors = os.path.exists(mono_depth_dir) and os.path.exists(mono_normal_dir)
+
         contents = json.load(json_file)
         fl_x = contents["fl_x"]
         fl_y = contents["fl_y"]
@@ -303,54 +310,75 @@ def readCamerasFromTransforms1(path, transforms_file, white_background, image_su
             print(f"Too many frames ({n}), sampling {max_samples} frames for {'testing' if test else 'training'}...")
             indices = np.linspace(0, n - 1, max_samples).astype(int)
             frames = [frames[i] for i in indices]
-        
+        try:
+            cameras_extrinsic_file = os.path.join(path, colmap_folder, "images.bin")
+            cam_extrinsics = read_extrinsics_binary(cameras_extrinsic_file)
+        except:
+            cameras_extrinsic_file = os.path.join(path, colmap_folder, "images.txt")
+            cam_extrinsics = read_extrinsics_text(cameras_extrinsic_file)
         print("Number of {} frames: {}".format("test" if test else "train", len(frames)))
-        for idx, frame in enumerate(frames):
-            cam_name = os.path.join(path,image_subdir, frame["file_path"])
+        frames = [str(i['file_path']) for i in frames]
 
-            # NeRF 'transform_matrix' is a camera-to-world transform
-            c2w = np.array(frame["transform_matrix"])
-            # change from OpenGL/Blender camera axes (Y up, Z back) to COLMAP (Y down, Z forward)
-            c2w[:3, 1:3] *= -1
+        for idx, key in enumerate(cam_extrinsics):
+            sys.stdout.write('\r')
+            # the exact output you're looking for:
+            sys.stdout.write("Reading camera {}/{}".format(idx+1, len(cam_extrinsics)))
+            sys.stdout.flush()
+            extr = cam_extrinsics[key]
+        
+            if not(extr.name in frames):
+                continue
 
-            # get the world-to-camera transform and set R, T
-            w2c = np.linalg.inv(c2w)
-            R = np.transpose(w2c[:3,:3])  # R is stored transposed due to 'glm' in CUDA code
-            R[1], R[0] = R[0], R[1].copy()  # swap back the first two rows
-            R[2] *= -1
-            T = w2c[:3, 3]
-            image_path = os.path.join(path, cam_name)
-            image_name = Path(cam_name).stem
+            R = np.transpose(qvec2rotmat(extr.qvec))
+            T = np.array(extr.tvec)
+
+#            else:
+#                assert False, "Colmap camera model not handled: only undistorted datasets (PINHOLE or SIMPLE_PINHOLE cameras) supported!"
+
+            image_path = os.path.join(path,image_subdir, os.path.basename(extr.name))
+            image_name = os.path.basename(image_path).split(".")[0]
             image = Image.open(image_path)
-
-            im_data = np.array(image.convert("RGBA"))
-
-            bg = np.array([1,1,1]) if white_background else np.array([0, 0, 0])
-
-            norm_data = im_data / 255.0
-            arr = norm_data[:,:,:3] * norm_data[:, :, 3:4] + bg * (1 - norm_data[:, :, 3:4])
-            image = Image.fromarray(np.array(arr*255.0, dtype=np.uint8), "RGB")
-
+            if image.mode == "RGBA":
+                im_data = np.array(image.convert("RGBA"))
+                bg = np.array([1,1,1]) if white_background else np.array([0, 0, 0])
+                norm_data = im_data / 255.0
+                arr = norm_data[:,:,:3] * norm_data[:, :, 3:4] + bg * (1 - norm_data[:, :, 3:4])
+                image.close()  # Close the original image to free resources
+                image = Image.fromarray(np.array(arr*255.0, dtype=np.byte), "RGB")
+            elif image.mode != "RGB":
+                image = image.convert("RGB")
+            image.load()  # Force loading the image data into memory
+        # Load monocular priors if available
+            mono_depth = None
+            mono_normal = None
+            #if has_mono_priors:
+            #    depth_path = os.path.join(mono_depth_dir, f"{image_name}.npy")
+            #    normal_path = os.path.join(mono_normal_dir, f"{image_name}.npy")
+            #    if os.path.exists(depth_path):
+            #        mono_depth = np.load(depth_path)
+            #    if os.path.exists(normal_path):
+            #        mono_normal = np.load(normal_path)
             fovy = focal2fov(fl_y, image.size[1])
             fovx = focal2fov(fl_x, image.size[0])
             FovY = fovy 
             FovX = fovx
 
             cam_infos.append(CameraInfo(uid=idx, R=R, T=T, FovY=FovY, FovX=FovX, image=image,
-                            image_path=image_path, image_name=image_name, width=image.size[0], height=image.size[1]))
-            
+                            image_path=image_path, image_name=image_name, width=image.size[0], height=image.size[1], mono_depth=mono_depth, mono_normal=mono_normal))
+        sys.stdout.write('\n')
+        print(f"Finished reading {len(cam_infos)} cameras for {'test' if test else 'train'} set.")
     return cam_infos
 def readNerfSyntheticInfo(args, extension=".png"):
     print("Reading Training Transforms")
     try: 
         train_cam_infos = readCamerasFromTransforms(args.source_path, "transforms_train.json", args.white_background, extension)
     except:
-        train_cam_infos = readCamerasFromTransforms1(args.source_path, args.train_transforms_file, args.white_background, args.images, max_samples=args.train_max_samples, frame_entry=args.train_frame_entry, test=False)
+        train_cam_infos = readCamerasFromTransforms1(args.source_path, args.train_transforms_file, args.white_background, args.images, max_samples=args.train_max_samples, frame_entry=args.train_frame_entry, test=False, colmap_folder=args.colmap_folder)
     print("Reading Test Transforms")
     try:
         test_cam_infos = readCamerasFromTransforms(args.source_path, "transforms_test.json", args.white_background, extension)
     except:
-        test_cam_infos = readCamerasFromTransforms1(args.source_path, args.test_transforms_file, args.white_background, args.test_images, max_samples=args.test_max_samples, frame_entry=args.test_frame_entry, test=True)
+        test_cam_infos = readCamerasFromTransforms1(args.source_path, args.test_transforms_file, args.white_background, args.test_images, max_samples=args.test_max_samples, frame_entry=args.test_frame_entry, test=True, colmap_folder=args.colmap_folder)
     
     if not args.eval:
         train_cam_infos.extend(test_cam_infos)
@@ -400,4 +428,5 @@ def readNerfSyntheticInfo(args, extension=".png"):
 sceneLoadTypeCallbacks = {
     "Colmap": readColmapSceneInfo,
     "Blender" : readNerfSyntheticInfo,
+    
 }

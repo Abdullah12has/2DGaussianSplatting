@@ -98,7 +98,8 @@ def main():
         
         # Load image
         image = Image.open(img_path).convert("RGB")
-        
+        scale=image.width/1600.
+        image = image.resize((int(image.width/scale), int(image.height/scale)))  # Resize for faster processing
         # Compute depth
         if not args.normal_only:
             if not depth_path.exists() or args.force:

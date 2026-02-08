@@ -2,7 +2,13 @@
 # Monocular Depth and Normal Prior Estimation
 # For 2D Gaussian Splatting enhancement
 #
+import sys
 
+import logging
+
+# 1. Force sys.stdout to behave like a terminal-friendly object
+if not hasattr(sys.stdout, 'isatty'):
+    sys.stdout.isatty = lambda: False
 import torch
 import torch.nn.functional as F
 import numpy as np
@@ -109,16 +115,15 @@ def estimate_depth(image, device="cuda"):
     with torch.no_grad():
         outputs = model(**inputs)
         predicted_depth = outputs.predicted_depth
-    
     # Interpolate to original size
     prediction = F.interpolate(
         predicted_depth.unsqueeze(1),
-        size=image.size[::-1],  # PIL size is (W, H)
+        size=image.shape[:2],  # PIL size is (W, H)
         mode="bicubic",
         align_corners=False,
     )
     
-    depth = prediction.squeeze().cpu().numpy()
+    depth = prediction.squeeze()
     return depth
 
 
@@ -135,18 +140,18 @@ def estimate_normal_from_depth(depth, mask=None):
         normal: numpy array [H, W, 3] with xyz normal components
     """
     # Compute gradients
-    dz_dx = np.gradient(depth, axis=1)
-    dz_dy = np.gradient(depth, axis=0)
+    dz_dx = torch.gradient(depth, dim=1)[0]
+    dz_dy = torch.gradient(depth, dim=0)[0]
     
     # Construct normal vectors
     # Normal = (-dz/dx, -dz/dy, 1), normalized
-    normal = np.stack([-dz_dx, -dz_dy, np.ones_like(depth)], axis=-1)
+    normal = torch.stack([-dz_dx, -dz_dy, torch.ones_like(depth)], dim=-1)
     
     # Normalize
-    norm = np.linalg.norm(normal, axis=-1, keepdims=True)
+    norm = torch.norm(normal, dim=-1, keepdim=True)
     normal = normal / (norm + 1e-8)
     
-    return normal
+    return normal.movedim(-1, 0)
 
 
 def estimate_normal(image, device="cuda"):

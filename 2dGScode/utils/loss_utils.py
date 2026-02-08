@@ -230,7 +230,6 @@ def mono_normal_loss(pred_normal, mono_normal, mask=None):
     if mask is not None:
         # Expand mask to [3, H, W]
         mask_3d = mask.unsqueeze(0).expand_as(pred_normal)
-        
         # Apply mask
         pred_masked = pred_normal * mask_3d
         mono_masked = mono_normal * mask_3d

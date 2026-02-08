@@ -80,8 +80,8 @@ if __name__ == "__main__":
         
         render_cmd = f'python 2dGScode/render.py --source_path {source_path} --model_path {model_path}' + ' ' + subscene__options[subscene]['render']
         print("Executing training command: ", train_cmd)
-        os.system(train_cmd)
-        
+        while not os.path.exists(os.path.join(model_path, 'point_cloud', 'iteration_30000', 'point_cloud.ply')):
+            os.system(train_cmd)
         #print("Executing rendering command: ", render_cmd)
         #os.system(render_cmd)
     #print('scenes to process: ', downloaded_val_list)

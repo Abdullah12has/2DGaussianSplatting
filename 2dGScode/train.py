@@ -17,7 +17,7 @@ from utils.loss_utils import l1_loss, ssim, scale_invariant_depth_loss, mono_nor
 from utils.loss_utils import l1_loss, ssim
 from lpipsPyTorch import lpips
 import json
-from utils.mono_prior import estimate_depth, estimate_normal
+from utils.mono_prior import estimate_depth, estimate_normal_from_depth
 from gaussian_renderer import render, network_gui
 import sys
 from scene import Scene, GaussianModel
@@ -87,7 +87,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
         
         gt_image = viewpoint_cam.original_image.cuda()
-        np_gt_image = viewpoint_cam.original_image.cpu().numpy().transpose(1, 2, 0).astype('uint8')
+        np_gt_image = viewpoint_cam.original_image.cuda().movedim(0, 2).to(torch.uint8)*255
         Ll1 = l1_loss(image, gt_image)
         loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image))
         
@@ -116,24 +116,29 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         valid_mask = None
         if rend_alpha is not None:
             valid_mask = (rend_alpha > 0.5).squeeze(0).float()  # [H, W]
-        
-        if opt.lambda_mono_depth > 0 and viewpoint_cam.mono_depth is not None:
+        depth_estimate = None
+        if opt.lambda_mono_depth > 0 and iteration > 3000:
             surf_depth = render_pkg['surf_depth']
             with torch.no_grad():
-                
-                depth = estimate_depth(np_gt_image, device=args.device)
-                
-
+                if viewpoint_cam.mono_depth is None:
+                    depth_estimate = (estimate_depth(np_gt_image))
+                    viewpoint_cam.mono_depth = depth_estimate.cpu() if depth_estimate is not None else None
+                else:
+                    depth_estimate = viewpoint_cam.mono_depth.cuda()
             mono_depth_loss = decay * opt.lambda_mono_depth * scale_invariant_depth_loss(
-                surf_depth, depth, mask=valid_mask, alpha=0.5
+                surf_depth,     depth_estimate, mask=valid_mask, alpha=0.5
             )
         
-        if (opt.lambda_mono_normal_l1 > 0 or opt.lambda_mono_normal_cos > 0) and viewpoint_cam.mono_normal is not None:
+        if (opt.lambda_mono_normal_l1 > 0 or opt.lambda_mono_normal_cos > 0) and iteration > 7000:
             # Returns separate L1 and cosine losses
             with torch.no_grad():
-                normal= estimate_normal(np_gt_image, device=args.device)
+                if viewpoint_cam.mono_normal is None:
+                    normal_estimate = (estimate_normal_from_depth(depth_estimate) if depth_estimate is not None else None)
+                    viewpoint_cam.mono_normal = normal_estimate.cpu() if normal_estimate is not None else None
+                else:
+                    normal_estimate = viewpoint_cam.mono_normal.cuda()
             normal_l1, normal_cos = mono_normal_loss(
-                rend_normal, normal, mask=valid_mask
+                rend_normal, normal_estimate, mask=valid_mask
             )
             mono_normal_l1_loss = decay * opt.lambda_mono_normal_l1 * normal_l1
             mono_normal_cos_loss = decay * opt.lambda_mono_normal_cos * normal_cos
