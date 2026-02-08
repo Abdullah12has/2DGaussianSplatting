@@ -43,21 +43,10 @@ def get_depth_model(device="cuda"):
             
         except ImportError:
             print("Warning: transformers not installed. Install with: pip install transformers")
-            print("Falling back to Omnidata depth model...")
-            return get_omnidata_depth_model(device)
     
     return _depth_model, _depth_processor
 
 
-def get_omnidata_depth_model(device="cuda"):
-    """
-    Fallback: Load Omnidata depth model.
-    """
-    # Placeholder for Omnidata implementation
-    raise NotImplementedError(
-        "Omnidata depth model not yet implemented. "
-        "Please install transformers and use Depth-Anything-V2."
-    )
 
 
 def get_normal_model(device="cuda"):
