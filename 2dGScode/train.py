@@ -108,7 +108,8 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         mono_normal_cos_loss = torch.tensor(0.0, device="cuda")
         
         # Compute exponential decay for monocular priors
-        decay = get_mono_prior_decay(iteration, opt.mono_prior_decay_end)
+        if opt.lambda_mono_depth > 0 or opt.lambda_mono_normal_l1 > 0 or opt.lambda_mono_normal_cos > 0:
+            decay = get_mono_prior_decay(iteration, opt.mono_prior_decay_end)
         
         # Create validity mask based on rendering alpha (MonoSDF style)
         # Only supervise pixels with high rendering confidence

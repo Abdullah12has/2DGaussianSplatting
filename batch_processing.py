@@ -2,6 +2,7 @@ import argparse
 import os
 from itertools import combinations
 import json
+from time import sleep
 
 def read_file_to_list(file_path):
     """
@@ -55,12 +56,12 @@ if __name__ == "__main__":
 
     print("Total combinations to test: ", all_combinations)
     print("Total number of combinations: ", len(all_combinations))
-    modification_opts = {'exposure_optimization':'--use_exposure_optimization', 'MCMC':'--mcmc', 'depth Gaussian reinitialization':f'--depth_reinit_every 5000 --reinit_target_points_ratio 0.8', 'normal_depth_prior':'  --lambda_mono_depth 0.1 --lambda_mono_normal_l1 0.05 --lambda_mono_normal_cos 0.05 --mono_prior_decay_end 15000'}
+    modification_opts = {'exposure_optimization':'--use_exposure_optimization', 'MCMC':'--mcmc', 'depth Gaussian reinitialization':f'--depth_reinit_every 5000 --reinit_target_points_ratio 1.4', 'normal_depth_prior':'  --lambda_mono_depth 0.1 --lambda_mono_normal_l1 0.05 --lambda_mono_normal_cos 0.05 --mono_prior_decay_end 15000'}
     #file_list = read_file_to_list_clean(os.path.join(dataset_path, "to_download.txt"))
     #val_list = read_file_to_list_clean(os.path.join(dataset_path, "splits/nvs_sem_val.txt"))
     #downloaded_val_list = [line for line in file_list if line in val_list]
-    #all_combinations= [i for i in all_combinations if 'depth Gaussian reinitialization' in i ] 
-    print("Filtered combinations to test: ", all_combinations)
+    all_combinations= [i for i in all_combinations if 'depth Gaussian reinitialization' in i or(('normal_depth_prior' in i) and len(i) > 1) ] # Filter combinations to only those that include at least one of the modifications
+    print("Filtered combinations to test: ", len(all_combinations))
     for comb in all_combinations:
         for k in modification_opts.keys():
             if k in comb:
@@ -79,9 +80,28 @@ if __name__ == "__main__":
         train_cmd = f'python 2dGScode/train.py --source_path {source_path} --model_path {model_path}'+ ' ' + ' '.join([modification_opts[opt] for opt in comb]) + ' ' + subscene__options[subscene]['train']+ f' --lambda_dist {lambda_dist[scene] if scene in lambda_dist else 10}'+ f' --port {args.port}'
         
         render_cmd = f'python 2dGScode/render.py --source_path {source_path} --model_path {model_path}' + ' ' + subscene__options[subscene]['render']
-        print("Executing training command: ", train_cmd)
-        while not os.path.exists(os.path.join(model_path, 'point_cloud', 'iteration_30000', 'point_cloud.ply')):
-            os.system(train_cmd)
-        #print("Executing rendering command: ", render_cmd)
-        #os.system(render_cmd)
+        try:
+            attempt = 0
+            print("Executing training command: ", train_cmd)
+
+            while (attempt==0  or not os.path.exists(os.path.join(model_path, 'point_cloud', 'iteration_30000', 'point_cloud.ply'))):
+                os.system(train_cmd)
+                attempt += 1
+                if attempt >= 5:
+                    print(f"Training failed after {attempt} attempts. Skipping to next combination.")
+                    break
+                sleep(1)
+            attempt = 0
+
+            print("Executing rendering command: ", render_cmd)
+            while (attempt==0 or not os.path.exists(os.path.join(model_path, 'train_30000', 'fuse_post.ply'))):
+                os.system(render_cmd)
+                attempt += 1
+                if attempt >= 5:
+                    print(f"Rendering failed after {attempt} attempts. Skipping to next combination.")
+                    break
+                sleep(1)
+
+        except KeyboardInterrupt:
+            print("Training interrupted by user.")
     #print('scenes to process: ', downloaded_val_list)
