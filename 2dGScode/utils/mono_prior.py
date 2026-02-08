@@ -172,20 +172,6 @@ def estimate_normal(image, device="cuda"):
     if isinstance(image, np.ndarray):
         image = Image.fromarray(image.astype(np.uint8))
     
-    # Prepare input for Omnidata
-    from torchvision import transforms
-    
-    transform = transforms.Compose([
-        transforms.Resize(384),
-        transforms.CenterCrop(384),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-    ])
-    
-    input_tensor = transform(image).unsqueeze(0).to(device)
-    
-    with torch.no_grad():
-        normal_pred = model(input_tensor)
     
     # Resize to original
     normal_pred = F.interpolate(
