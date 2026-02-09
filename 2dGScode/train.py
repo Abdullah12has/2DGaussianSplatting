@@ -14,9 +14,10 @@ import torch
 import math
 from random import randint
 from utils.loss_utils import l1_loss, ssim, scale_invariant_depth_loss, mono_normal_loss
-from utils.loss_utils import l1_loss, ssim
 from lpipsPyTorch import lpips
 import json
+import numpy as np
+from PIL import Image
 from utils.mono_prior import estimate_depth, estimate_normal_from_depth
 from gaussian_renderer import render, network_gui
 import sys
@@ -64,6 +65,9 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     ema_loss_for_log = 0.0
     ema_dist_for_log = 0.0
     ema_normal_for_log = 0.0
+    ema_mono_depth_for_log = 0.0
+    ema_mono_normal_l1_for_log = 0.0
+    ema_mono_normal_cos_for_log = 0.0
 
     progress_bar = tqdm(range(first_iter, opt.iterations), desc="Training progress")
     first_iter += 1
@@ -87,7 +91,6 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
         
         gt_image = viewpoint_cam.original_image.cuda()
-        np_gt_image = viewpoint_cam.original_image.cuda().movedim(0, 2).to(torch.uint8)*255
         Ll1 = l1_loss(image, gt_image)
         loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image))
         
@@ -112,37 +115,54 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             decay = get_mono_prior_decay(iteration, opt.mono_prior_decay_end)
         
         # Create validity mask based on rendering alpha (MonoSDF style)
-        # Only supervise pixels with high rendering confidence
         rend_alpha = render_pkg.get('rend_alpha')
         valid_mask = None
         if rend_alpha is not None:
-            valid_mask = (rend_alpha > 0.5).squeeze(0).float()  # [H, W]
+            valid_mask = (rend_alpha > opt.mono_prior_alpha_threshold).squeeze(0).float()  # [H, W]
         depth_estimate = None
-        if opt.lambda_mono_depth > 0 and iteration > 3000:
+        if opt.lambda_mono_depth > 0 and iteration > opt.mono_depth_start_iter:
             surf_depth = render_pkg['surf_depth']
             with torch.no_grad():
                 if viewpoint_cam.mono_depth is None:
-                    depth_estimate = (estimate_depth(np_gt_image))
+                    gt_image_pil = Image.fromarray(
+                        (viewpoint_cam.original_image.permute(1, 2, 0) * 255).byte().numpy()
+                    )
+                    depth_estimate = estimate_depth(gt_image_pil, device="cuda")
                     viewpoint_cam.mono_depth = depth_estimate.cpu() if depth_estimate is not None else None
                 else:
                     depth_estimate = viewpoint_cam.mono_depth.cuda()
             mono_depth_loss = decay * opt.lambda_mono_depth * scale_invariant_depth_loss(
-                surf_depth,     depth_estimate, mask=valid_mask, alpha=0.5
+                surf_depth, depth_estimate, mask=valid_mask, alpha=0.5
             )
-        
-        if (opt.lambda_mono_normal_l1 > 0 or opt.lambda_mono_normal_cos > 0) and iteration > 7000:
+
+        if (opt.lambda_mono_normal_l1 > 0 or opt.lambda_mono_normal_cos > 0) and iteration > opt.mono_normal_start_iter:
             # Returns separate L1 and cosine losses
             with torch.no_grad():
                 if viewpoint_cam.mono_normal is None:
-                    normal_estimate = (estimate_normal_from_depth(depth_estimate) if depth_estimate is not None else None)
+                    # Compute depth if not already available (e.g. lambda_mono_depth=0)
+                    if depth_estimate is None:
+                        if viewpoint_cam.mono_depth is not None:
+                            depth_estimate = viewpoint_cam.mono_depth.cuda()
+                        else:
+                            gt_image_pil = Image.fromarray(
+                                (viewpoint_cam.original_image.permute(1, 2, 0) * 255).byte().numpy()
+                            )
+                            depth_estimate = estimate_depth(gt_image_pil, device="cuda")
+                            viewpoint_cam.mono_depth = depth_estimate.cpu()
+                    normal_estimate = estimate_normal_from_depth(
+                            depth_estimate,
+                            fovx=viewpoint_cam.FoVx,
+                            fovy=viewpoint_cam.FoVy
+                        )
                     viewpoint_cam.mono_normal = normal_estimate.cpu() if normal_estimate is not None else None
                 else:
                     normal_estimate = viewpoint_cam.mono_normal.cuda()
-            normal_l1, normal_cos = mono_normal_loss(
-                rend_normal, normal_estimate, mask=valid_mask
-            )
-            mono_normal_l1_loss = decay * opt.lambda_mono_normal_l1 * normal_l1
-            mono_normal_cos_loss = decay * opt.lambda_mono_normal_cos * normal_cos
+            if normal_estimate is not None:
+                normal_l1, normal_cos = mono_normal_loss(
+                    rend_normal, normal_estimate, mask=valid_mask
+                )
+                mono_normal_l1_loss = decay * opt.lambda_mono_normal_l1 * normal_l1
+                mono_normal_cos_loss = decay * opt.lambda_mono_normal_cos * normal_cos
 
         # MCMC regularization losses
         opacity_reg_loss = 0.0
@@ -163,9 +183,9 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             ema_loss_for_log = 0.4 * loss.item() + 0.6 * ema_loss_for_log
             ema_dist_for_log = 0.4 * dist_loss.item() + 0.6 * ema_dist_for_log
             ema_normal_for_log = 0.4 * normal_loss.item() + 0.6 * ema_normal_for_log
-            ema_mono_depth_for_log = 0.4 * mono_depth_loss.item() + 0.6 * ema_loss_for_log
-            ema_mono_normal_l1_for_log = 0.4 * mono_normal_l1_loss.item() + 0.6 * ema_loss_for_log
-            ema_mono_normal_cos_for_log = 0.4 * mono_normal_cos_loss.item() + 0.6 * ema_loss_for_log
+            ema_mono_depth_for_log = 0.4 * mono_depth_loss.item() + 0.6 * ema_mono_depth_for_log
+            ema_mono_normal_l1_for_log = 0.4 * mono_normal_l1_loss.item() + 0.6 * ema_mono_normal_l1_for_log
+            ema_mono_normal_cos_for_log = 0.4 * mono_normal_cos_loss.item() + 0.6 * ema_mono_normal_cos_for_log
             ema_opacity_reg_for_log = 0.4 * opacity_reg_loss + 0.6 * ema_loss_for_log
             ema_scale_reg_for_log = 0.4 * scale_reg_loss + 0.6 * ema_loss_for_log
 
@@ -226,48 +246,34 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                     if iteration % opt.opacity_reset_interval == 0 or (dataset.white_background and iteration == opt.densify_from_iter):
                         gaussians.reset_opacity()
 
-                # Depth Reinitialization (Task 2) - Mini-Splatting strategy
-                if opt.depth_reinit_every > 0 and iteration % opt.depth_reinit_every == 0:
-                    from utils.depth_reinit import aggregate_depth_points, filter_duplicate_points
-                    print(f"\n[ITER {iteration}] Depth Reinitialization (Mini-Splatting)")
-                    
-                    # Use ALL training cameras (Mini-Splatting uses all views)
-                    train_cameras = scene.getTrainCameras()
-                    
-                    # Aggregate depth points with importance sampling
-                    depth_points, depth_colors = aggregate_depth_points(
-                        train_cameras,
-                        gaussians, pipe, background, render,
-                        target_total_points=opt.reinit_target_points_ratio * (gaussians.get_xyz.shape[0]),  # Scale target points by current number of Gaussians
-                    )
-                    
-                    # Filter duplicate points (optional, for efficiency)
-                    depth_points, depth_colors = filter_duplicate_points(depth_points, depth_colors)
-                    
-                    # Complete replacement - discard all old Gaussians
+            # Depth Reinitialization (Task 2) - Mini-Splatting strategy
+            # Runs independently of densification phase (not gated by densify_until_iter)
+            if opt.depth_reinit_every > 0 and iteration % opt.depth_reinit_every == 0:
+                from utils.depth_reinit import aggregate_depth_points, filter_duplicate_points
+                print(f"\n[ITER {iteration}] Depth Reinitialization (Mini-Splatting)")
+
+                # Use ALL training cameras (Mini-Splatting uses all views)
+                train_cameras = scene.getTrainCameras()
+
+                # Aggregate depth points with importance sampling (fixed target count)
+                depth_points, depth_colors = aggregate_depth_points(
+                    train_cameras,
+                    gaussians, pipe, background, render,
+                    target_total_points=opt.reinit_target_points,
+                )
+
+                # Filter duplicate points
+                depth_points, depth_colors = filter_duplicate_points(depth_points, depth_colors)
+
+                # Guard: only reinitialize if we got enough points
+                if depth_points.shape[0] > 0:
                     gaussians.reinitialize_from_depth(
                         depth_points, depth_colors, opt
                     )
-                    
-                    # Clear cache and reset viewpoint stack
                     torch.cuda.empty_cache()
                     viewpoint_stack = None
-
-            # Final reinitialization at densify_until_iter (Mini-Splatting strategy)
-            # This resets Gaussian parameters for the final training phase
-            #if iteration == opt.densify_until_iter and len(opt.depth_reinit_iters) > 0:
-            #    from utils.sh_utils import SH2RGB
-            #    print(f"\n[ITER {iteration}] Final Reinitialization at densify_until_iter (Mini-Splatting)")
-            #    
-            #    # Reinit with current positions but reset other parameters
-            #    # This is exactly what Mini-Splatting does at this point
-            #    current_xyz = gaussians._xyz.detach().clone()
-            #    current_rgb = SH2RGB(gaussians._features_dc.detach().squeeze(1))
-            #    
-            #    gaussians.reinitialize_from_depth(current_xyz, current_rgb, opt)
-            #    torch.cuda.empty_cache()
-            #    viewpoint_stack = None
-
+                else:
+                    print("[Warning] No valid depth points sampled, skipping reinitialization")
 
             # Optimizer step
             if iteration < opt.iterations:

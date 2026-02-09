@@ -105,7 +105,7 @@ def main():
             if not depth_path.exists() or args.force:
                 try:
                     depth = estimate_depth(image, device=args.device)
-                    np.save(depth_path, depth.astype(np.float32))
+                    np.save(depth_path, depth.cpu().numpy().astype(np.float32))
                 except Exception as e:
                     print(f"\nError computing depth for {img_name}: {e}")
                     continue
@@ -115,7 +115,7 @@ def main():
             if not normal_path.exists() or args.force:
                 try:
                     normal = estimate_normal(image, device=args.device)
-                    np.save(normal_path, normal.astype(np.float32))
+                    np.save(normal_path, normal.cpu().numpy().astype(np.float32))
                 except Exception as e:
                     print(f"\nError computing normal for {img_name}: {e}")
                     continue

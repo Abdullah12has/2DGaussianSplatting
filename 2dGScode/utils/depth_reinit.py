@@ -189,13 +189,16 @@ def aggregate_depth_points(
             # Render depth and alpha
             render_pkg = render_fn(camera, gaussians, pipe, background)
             depth_map = render_pkg.get('surf_depth', render_pkg.get('depth'))
+            if depth_map is None:
+                print(f"[Warning] No depth map found for camera {view_idx}, skipping")
+                continue
             gt_image = camera.original_image.cuda()
             # Get accumulated alpha (opacity)
             accum_alpha = render_pkg.get('rend_alpha', None)
             if accum_alpha is None:
                 # Fallback: assume full opacity
                 accum_alpha = torch.ones_like(depth_map)
-            
+
             if accum_alpha.dim() == 3:
                 accum_alpha = accum_alpha.squeeze(0)
             if depth_map.dim() == 3:

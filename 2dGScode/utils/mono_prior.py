@@ -107,7 +107,7 @@ def estimate_depth(image, device="cuda"):
     # Interpolate to original size
     prediction = F.interpolate(
         predicted_depth.unsqueeze(1),
-        size=image.shape[:2],  # PIL size is (W, H)
+        size=image.size[::-1],  # PIL .size is (W, H), we need (H, W)
         mode="bicubic",
         align_corners=False,
     )
@@ -116,30 +116,54 @@ def estimate_depth(image, device="cuda"):
     return depth
 
 
-def estimate_normal_from_depth(depth, mask=None):
+def estimate_normal_from_depth(depth, mask=None, fovx=None, fovy=None):
     """
-    Estimate surface normals from depth map using Sobel gradients.
-    Fallback when Omnidata is not available.
-    
+    Estimate surface normals from depth map using gradients.
+    Uses perspective-correct formula when FoV is provided.
+
     Args:
-        depth: numpy array [H, W]
+        depth: torch tensor [H, W]
         mask: optional valid region mask
-        
+        fovx: horizontal field of view in radians (for perspective correction)
+        fovy: vertical field of view in radians (for perspective correction)
+
     Returns:
-        normal: numpy array [H, W, 3] with xyz normal components
+        normal: torch tensor [3, H, W] with xyz normal components
     """
-    # Compute gradients
+    H, W = depth.shape
+    device = depth.device
+
+    # Compute depth gradients
     dz_dx = torch.gradient(depth, dim=1)[0]
     dz_dy = torch.gradient(depth, dim=0)[0]
-    
-    # Construct normal vectors
-    # Normal = (-dz/dx, -dz/dy, 1), normalized
-    normal = torch.stack([-dz_dx, -dz_dy, torch.ones_like(depth)], dim=-1)
-    
+
+    if fovx is not None and fovy is not None:
+        # Perspective-correct normal estimation
+        fx = W / (2 * np.tan(fovx / 2))
+        fy = H / (2 * np.tan(fovy / 2))
+
+        # Pixel coordinate grids
+        y, x = torch.meshgrid(
+            torch.arange(H, device=device, dtype=torch.float32),
+            torch.arange(W, device=device, dtype=torch.float32),
+            indexing='ij'
+        )
+        cx, cy = W / 2.0, H / 2.0
+
+        # For perspective cameras, the surface normal in camera space is:
+        # n = (-fx * dz/dx, -fy * dz/dy, z + (x-cx)*dz/dx + (y-cy)*dz/dy)
+        nx = -fx * dz_dx
+        ny = -fy * dz_dy
+        nz = depth + (x - cx) * dz_dx + (y - cy) * dz_dy
+        normal = torch.stack([nx, ny, nz], dim=-1)
+    else:
+        # Orthographic fallback: n = (-dz/dx, -dz/dy, 1)
+        normal = torch.stack([-dz_dx, -dz_dy, torch.ones_like(depth)], dim=-1)
+
     # Normalize
     norm = torch.norm(normal, dim=-1, keepdim=True)
     normal = normal / (norm + 1e-8)
-    
+
     return normal.movedim(-1, 0)
 
 
@@ -187,14 +211,14 @@ def estimate_normal(image, device="cuda"):
         align_corners=False,
     )
     
-    # Convert to numpy, map from [0,1] to [-1,1]
-    normal = normal_pred.squeeze().permute(1, 2, 0).cpu().numpy()
+    # Map from [0,1] to [-1,1], keep as [3, H, W] torch tensor for consistency
+    normal = normal_pred.squeeze()  # [3, H, W]
     normal = normal * 2 - 1
-    
+
     # Normalize
-    norm = np.linalg.norm(normal, axis=-1, keepdims=True)
+    norm = torch.norm(normal, dim=0, keepdim=True)
     normal = normal / (norm + 1e-8)
-    
+
     return normal
 
 
@@ -241,12 +265,12 @@ class MonoPriorProcessor:
             # Compute depth
             if not depth_path.exists() or force_recompute:
                 depth = estimate_depth(image, self.device)
-                np.save(depth_path, depth.astype(np.float32))
-            
+                np.save(depth_path, depth.cpu().numpy().astype(np.float32))
+
             # Compute normal
             if not normal_path.exists() or force_recompute:
                 normal = estimate_normal(image, self.device)
-                np.save(normal_path, normal.astype(np.float32))
+                np.save(normal_path, normal.cpu().numpy().astype(np.float32))
         
         print(f"Priors saved to: {output_dir}")
     

@@ -113,14 +113,17 @@ class OptimizationParams(ParamGroup):
         self.densify_grad_threshold = 0.0002
         
         # Monocular prior losses (Task 4) - MonoSDF style
-        self.lambda_mono_depth = 0.0  # Weight for monocular depth loss (MonoSDF default)
-        self.lambda_mono_normal_l1 = 0.0  # Weight for normal L1 loss (MonoSDF default)
-        self.lambda_mono_normal_cos = 0.0  # Weight for normal cosine loss (MonoSDF default)
-        self.mono_prior_decay_end = 15000  # End step for exponential decay (MonoSDF uses decay)
-        
+        self.lambda_mono_depth = 0.0  # Weight for monocular depth loss (recommended: 0.1)
+        self.lambda_mono_normal_l1 = 0.0  # Weight for normal L1 loss (recommended: 0.05)
+        self.lambda_mono_normal_cos = 0.0  # Weight for normal cosine loss (recommended: 0.05)
+        self.mono_prior_decay_end = 15000  # End step for exponential decay
+        self.mono_depth_start_iter = 500  # Iteration to start depth prior supervision
+        self.mono_normal_start_iter = 500  # Iteration to start normal prior supervision
+        self.mono_prior_alpha_threshold = 0.1  # Alpha threshold for valid pixel mask (MonoSDF uses low threshold)
+
         # Depth reinitialization (Task 2) - Mini-Splatting strategy
-        self.depth_reinit_every = -1   # List of iterations to reinitialize (e.g., [2000, 5000, 10000])
-        self.reinit_target_points_ratio = 0.8 # Target total points for reinitialization (3.5M default)
+        self.depth_reinit_every = -1   # Interval for reinitialization (-1 = disabled)
+        self.reinit_target_points = 500000  # Fixed target point count for reinitialization
         
         # MCMC parameters
         self.noise_lr = 5e5        # SGLD noise learning rate
