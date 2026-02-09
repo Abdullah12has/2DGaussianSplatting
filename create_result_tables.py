@@ -3,6 +3,7 @@ import os
 from itertools import combinations
 import json
 from time import sleep
+from narwhals import col
 import pandas as pd
 
 
@@ -49,7 +50,7 @@ if __name__ == "__main__":
         results[key] = {}
         for metric in results_dict[key][0].keys():
             results[key][metric] = sum([result[metric] for result in results_dict[key]])/len(results_dict[key])
-            
+    
     combination_names = [ '+'.join([opt.replace('_',' ') for opt in comb]) if len(comb)>0 else "base model" for comb in all_combinations]
     results = {combination: results.get(combination, {}) for combination in combination_names}
     results_final = {}  
@@ -57,10 +58,23 @@ if __name__ == "__main__":
         value= results[key]
         key = key.replace('MCMC','1').replace('depth Gaussian reinitialization','2').replace('normal depth prior','3')
         results_final[key]= value
+    
     df = pd.DataFrame.from_dict(results_final, orient='index')
-    latex_table = df.to_latex(
-        float_format="%.4f"
-    )
+    to_min = ['L1', 'LPIPS', 'CD']
+    to_max = ['PSNR', 'SSIM']
+    def bold_best(col):
+        if col.name in to_min:
+            print("Minimizing metric: ", col.name)
+            is_best = col == col.min()
+        elif col.name in to_max:
+            is_best = col == col.max()
+        elif col.name == 'Points':
+            return col.astype(int)  # Return original values for metrics that are neither minimized nor maximized
+        return ['\\textbf{' + f'{v:.3f}' + '}' if b else f'{v:.3f}' for v, b in zip(col, is_best)]
+    
+        # Reorder columns - specify your desired column order
+    desired_order = ['PSNR', 'SSIM', 'L1', 'LPIPS', 'CD','Points']  # Adjust as needed
+    latex_table = df[desired_order].apply(bold_best).to_latex()
     print(latex_table)
 
 
