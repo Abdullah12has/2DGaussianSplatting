@@ -13,6 +13,7 @@ import torch
 import torch.nn.functional as F
 from torch.autograd import Variable
 from math import exp
+from torch import nn
 
 def l1_loss(network_output, gt):
     return torch.abs((network_output - gt)).mean()
@@ -73,184 +74,148 @@ def _ssim(img1, img2, window, window_size, channel, size_average=True):
         return ssim_map.mean(1).mean(1).mean(1)
 
 
-def gradient_loss(prediction, target, mask=None, scales=1):
-    """
-    Multi-scale gradient loss (MonoSDF style).
-    Penalizes differences in spatial gradients between prediction and target.
-    
-    Args:
-        prediction: [H, W] depth prediction
-        target: [H, W] depth target
-        mask: Optional [H, W] valid region mask
-        scales: Number of scales (default 1, MonoSDF uses 4 for full)
-        
-    Returns:
-        Gradient loss value
-    """
-    total = 0.0
-    
-    for scale in range(scales):
-        step = 2 ** scale
-        
-        # Downsample
-        pred_scaled = prediction[::step, ::step]
-        target_scaled = target[::step, ::step]
-        mask_scaled = mask[::step, ::step] if mask is not None else None
-        
-        # Compute difference
-        diff = pred_scaled - target_scaled
-        if mask_scaled is not None:
-            diff = diff * mask_scaled
-        
-        # X gradients (horizontal)
-        grad_x = torch.abs(diff[:, 1:] - diff[:, :-1])
-        if mask_scaled is not None:
-            mask_x = mask_scaled[:, 1:] * mask_scaled[:, :-1]
-            grad_x = grad_x * mask_x
-            grad_x_sum = grad_x.sum()
+def compute_scale_and_shift(prediction, target, mask):
+    # system matrix: A = [[a_00, a_01], [a_10, a_11]]
+    a_00 = torch.sum(mask * prediction * prediction, (1, 2))
+    a_01 = torch.sum(mask * prediction, (1, 2))
+    a_11 = torch.sum(mask, (1, 2))
+
+    # right hand side: b = [b_0, b_1]
+    b_0 = torch.sum(mask * prediction * target, (1, 2))
+    b_1 = torch.sum(mask * target, (1, 2))
+
+    # solution: x = A^-1 . b = [[a_11, -a_01], [-a_10, a_00]] / (a_00 * a_11 - a_01 * a_10) . b
+    x_0 = torch.zeros_like(b_0)
+    x_1 = torch.zeros_like(b_1)
+
+    det = a_00 * a_11 - a_01 * a_01
+    valid = det.nonzero()
+
+    x_0[valid] = (a_11[valid] * b_0[valid] - a_01[valid] * b_1[valid]) / det[valid]
+    x_1[valid] = (-a_01[valid] * b_0[valid] + a_00[valid] * b_1[valid]) / det[valid]
+
+    return x_0, x_1
+
+
+def reduction_batch_based(image_loss, M):
+    # average of all valid pixels of the batch
+
+    # avoid division by 0 (if sum(M) = sum(sum(mask)) = 0: sum(image_loss) = 0)
+    divisor = torch.sum(M)
+
+    if divisor == 0:
+        return 0
+    else:
+        return torch.sum(image_loss) / divisor
+
+
+def reduction_image_based(image_loss, M):
+    # mean of average of valid pixels of an image
+
+    # avoid division by 0 (if M = sum(mask) = 0: image_loss = 0)
+    valid = M.nonzero()
+
+    image_loss[valid] = image_loss[valid] / M[valid]
+
+    return torch.mean(image_loss)
+
+
+def mse_loss(prediction, target, mask, reduction=reduction_batch_based):
+
+    M = torch.sum(mask, (1, 2))
+    res = prediction - target
+    image_loss = torch.sum(mask * res * res, (1, 2))
+
+    return reduction(image_loss, 2 * M)
+
+
+def gradient_loss(prediction, target, mask, reduction=reduction_batch_based):
+
+    M = torch.sum(mask, (1, 2))
+
+    diff = prediction - target
+    diff = torch.mul(mask, diff)
+
+    grad_x = torch.abs(diff[:, :, 1:] - diff[:, :, :-1])
+    mask_x = torch.mul(mask[:, :, 1:], mask[:, :, :-1])
+    grad_x = torch.mul(mask_x, grad_x)
+
+    grad_y = torch.abs(diff[:, 1:, :] - diff[:, :-1, :])
+    mask_y = torch.mul(mask[:, 1:, :], mask[:, :-1, :])
+    grad_y = torch.mul(mask_y, grad_y)
+
+    image_loss = torch.sum(grad_x, (1, 2)) + torch.sum(grad_y, (1, 2))
+
+    return reduction(image_loss, M)
+
+
+class MSELoss(nn.Module):
+    def __init__(self, reduction='batch-based'):
+        super().__init__()
+
+        if reduction == 'batch-based':
+            self.__reduction = reduction_batch_based
         else:
-            grad_x_sum = grad_x.sum()
-        
-        # Y gradients (vertical)
-        grad_y = torch.abs(diff[1:, :] - diff[:-1, :])
-        if mask_scaled is not None:
-            mask_y = mask_scaled[1:, :] * mask_scaled[:-1, :]
-            grad_y = grad_y * mask_y
-            grad_y_sum = grad_y.sum()
+            self.__reduction = reduction_image_based
+
+    def forward(self, prediction, target, mask):
+        return mse_loss(prediction, target, mask, reduction=self.__reduction)
+
+
+class GradientLoss(nn.Module):
+    def __init__(self, scales=4, reduction='batch-based'):
+        super().__init__()
+
+        if reduction == 'batch-based':
+            self.__reduction = reduction_batch_based
         else:
-            grad_y_sum = grad_y.sum()
-        
-        total += grad_x_sum + grad_y_sum
-    
-    # Normalize by number of valid pixels
-    if mask is not None:
-        num_valid = mask.sum().clamp(min=1)
-        total = total / num_valid
-    else:
-        total = total / (prediction.numel())
-    
-    return total
+            self.__reduction = reduction_image_based
+
+        self.__scales = scales
+
+    def forward(self, prediction, target, mask):
+        total = 0
+
+        for scale in range(self.__scales):
+            step = pow(2, scale)
+
+            total += gradient_loss(prediction[:, ::step, ::step], target[:, ::step, ::step],
+                                   mask[:, ::step, ::step], reduction=self.__reduction)
+
+        return total
 
 
-def scale_invariant_depth_loss(pred_depth, mono_depth, mask=None, alpha=0.5):
-    """
-    Scale-invariant depth loss with gradient regularization (MonoSDF style).
-    
-    Combines MSE loss (after scale-shift alignment) with multi-scale gradient regularization.
-    
-    Args:
-        pred_depth: Rendered depth [1, H, W] or [H, W]
-        mono_depth: Monocular prior [1, H, W] or [H, W]
-        mask: Optional valid region mask [H, W]
-        alpha: Weight for gradient regularization (default 0.5, MonoSDF default)
-        
-    Returns:
-        Loss value (scalar)
-    """
-    # Flatten tensors
-    if pred_depth.dim() == 3:
-        pred_depth = pred_depth.squeeze(0)
-    if mono_depth.dim() == 3:
-        mono_depth = mono_depth.squeeze(0)
-    
-    H, W = pred_depth.shape
-    pred_flat = pred_depth.flatten()
-    mono_flat = mono_depth.flatten()
-    
-    # Apply mask if provided
-    if mask is not None:
-        if mask.dim() == 3:
-            mask = mask.squeeze(0)
-        mask_flat = mask.flatten()
-        valid = mask_flat.bool() & (pred_flat > 0) & ~torch.isnan(pred_flat) & ~torch.isnan(mono_flat)
-    else:
-        valid = (pred_flat > 0) & ~torch.isnan(pred_flat) & ~torch.isnan(mono_flat)
-    
-    if valid.sum() < 10:
-        return torch.tensor(0.0, device=pred_depth.device)
-    
-    pred_valid = pred_flat[valid]
-    mono_valid = mono_flat[valid]
-    
-    # Solve least squares for scale and shift: [w, q] = argmin ||w*pred + q - mono||^2
-    n = pred_valid.shape[0]
-    sum_pred = pred_valid.sum()
-    sum_pred_sq = (pred_valid ** 2).sum()
-    sum_mono = mono_valid.sum()
-    sum_pred_mono = (pred_valid * mono_valid).sum()
-    
-    # Solve 2x2 system
-    det = sum_pred_sq * n - sum_pred * sum_pred
-    if det.abs() < 1e-8:
-        # Degenerate case, use simple L1 loss
-        return torch.abs(pred_valid - mono_valid).mean()
-    
-    w = (n * sum_pred_mono - sum_pred * sum_mono) / det
-    q = (sum_pred_sq * sum_mono - sum_pred * sum_pred_mono) / det
-    
-    # Compute aligned prediction
-    aligned_pred = w * pred_valid + q
-    
-    # MSE loss (data term)
-    mse_loss = ((aligned_pred - mono_valid) ** 2).mean()
-    
-    # Gradient regularization term
-    if alpha > 0:
-        # Apply scale-shift to full 2D depth map for gradient computation
-        pred_aligned_2d = w * pred_depth + q
-        
-        # Compute gradient loss (MonoSDF uses 4 scales for multi-resolution supervision)
-        grad_loss = gradient_loss(pred_aligned_2d, mono_depth, mask, scales=4)
-        
-        total_loss = mse_loss + alpha * grad_loss
-    else:
-        total_loss = mse_loss
-    
-    return total_loss
+class ScaleAndShiftInvariantLoss(nn.Module):
+    def __init__(self, alpha=0.5, scales=4, reduction='image-based'):
+        super().__init__()
 
+        self.__data_loss = MSELoss(reduction=reduction)
+        self.__regularization_loss = GradientLoss(scales=scales, reduction=reduction)
+        self.__alpha = alpha
 
-def mono_normal_loss(pred_normal, mono_normal, mask=None):
-    """
-    Normal consistency loss (MonoSDF style).
-    Returns L1 and cosine losses separately for independent weighting.
-    
-    Args:
-        pred_normal: Rendered normal [3, H, W]
-        mono_normal: Monocular prior [3, H, W]
-        mask: Optional valid region mask [H, W]
-        
-    Returns:
-        l1_loss: L1 distance between normalized normals
-        cos_loss: 1 - cosine similarity (angular distance)
-    """
-    # Explicit normalization (critical for numerical stability!)
-    pred_normal = torch.nn.functional.normalize(pred_normal, p=2, dim=0)
-    mono_normal = torch.nn.functional.normalize(mono_normal, p=2, dim=0)
-    
-    if mask is not None:
-        # Expand mask to [3, H, W]
-        mask_3d = mask.unsqueeze(0).expand_as(pred_normal)
-        # Apply mask
-        pred_masked = pred_normal * mask_3d
-        mono_masked = mono_normal * mask_3d
-        
-        num_valid = mask.sum().clamp(min=1)
-        
-        # L1 term: |pred - target| summed over channels, averaged over pixels
-        l1_per_pixel = torch.abs(pred_masked - mono_masked).sum(dim=0)  # [H, W]
-        l1_loss = (l1_per_pixel * mask).sum() / num_valid
-        
-        # Cosine term: 1 - dot product (0 when aligned, 2 when opposite)
-        cos_sim = (pred_masked * mono_masked).sum(dim=0)  # [H, W]
-        cos_loss = ((1.0 - cos_sim) * mask).sum() / num_valid
-    else:
-        # L1 term
-        l1_per_pixel = torch.abs(pred_normal - mono_normal).sum(dim=0)
-        l1_loss = l1_per_pixel.mean()
-        
-        # Cosine term
-        cos_sim = (pred_normal * mono_normal).sum(dim=0)
-        cos_loss = (1.0 - cos_sim).mean()
-    
-    return l1_loss, cos_loss
+        self.__prediction_ssi = None
 
+    def forward(self, prediction, target, mask):
+
+        scale, shift = compute_scale_and_shift(prediction, target, mask)
+        self.__prediction_ssi = scale.view(-1, 1, 1) * prediction + shift.view(-1, 1, 1)
+
+        total = self.__data_loss(self.__prediction_ssi, target, mask)
+        if self.__alpha > 0:
+            total += self.__alpha * self.__regularization_loss(self.__prediction_ssi, target, mask)
+
+        return total
+
+    def __get_prediction_ssi(self):
+        return self.__prediction_ssi
+
+    prediction_ssi = property(__get_prediction_ssi)
+
+    
+def get_normal_loss( normal_pred, normal_gt):
+    normal_gt = torch.nn.functional.normalize(normal_gt, p=2, dim=-1)
+    normal_pred = torch.nn.functional.normalize(normal_pred, p=2, dim=-1)
+    
+    l1 = (torch.abs(normal_pred - normal_gt)).sum(dim=-1).mean()
+    cos = (1. - torch.sum(normal_pred * normal_gt, dim = -1)).mean()
+    return l1, cos

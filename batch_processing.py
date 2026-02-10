@@ -53,7 +53,7 @@ if __name__ == "__main__":
                  'render':'--depth_ratio 1 --images ../dslr/resized_undistorted_images --test_images ../dslr/resized_undistorted_images --train_transforms_file ../dslr/nerfstudio/transforms_undistorted.json --test_transforms_file ../dslr/nerfstudio/transforms_undistorted.json --eval --skip_train --skip_test --voxel_size 0.02 --depth_trunc 7 --sdf_trunc 0.1 --compute_chamfer --iteration 30000'}
 
 }
-    all_combinations = [['normal_depth_prior']]
+    all_combinations = [['MCMC']]
     print("Total combinations to test: ", all_combinations)
     print("Total number of combinations: ", len(all_combinations))
     modification_opts = {'exposure_optimization':'--use_exposure_optimization', 'MCMC':'--mcmc', 'depth Gaussian reinitialization':f'--depth_reinit_every 5000 --reinit_target_points_ratio 1.4', 'normal_depth_prior':'  --lambda_mono_depth 0.1 --lambda_mono_normal_l1 0.05 --lambda_mono_normal_cos 0.05 --mono_prior_decay_end 15000'}
@@ -71,11 +71,12 @@ if __name__ == "__main__":
         
         source_path = os.path.join(dataset_path,'data',scene, subscene)
         model_path = os.path.join(args.output_path,scene, subscene, '-'.join([opt.replace(' ','_') for opt in comb]) if len(comb)>0 else "base_model")
-        if 'MCMC' in comb:
+        if 'MCMC' in comb or 'depth Gaussian reinitialization' in comb:
             os.makedirs(model_path, exist_ok=True)
             with open(os.path.join(model_path, '../base_model/point_cloud/iteration_30000/metrics.json'), 'r') as log_file:
                 log_data = json.load(log_file)
                 cap_max = log_data['Points']
+                reinit_points = log_data['Points']
                 modification_opts['MCMC'] = f'--mcmc --cap_max {cap_max}'
         train_cmd = f'python 2dGScode/train.py --source_path {source_path} --model_path {model_path}'+ ' ' + ' '.join([modification_opts[opt] for opt in comb]) + ' ' + subscene__options[subscene]['train']+ f' --lambda_dist {lambda_dist[scene] if scene in lambda_dist else 10}'+ f' --port {args.port}'
         

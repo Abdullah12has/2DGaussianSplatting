@@ -116,11 +116,11 @@ class OptimizationParams(ParamGroup):
         self.lambda_mono_depth = 0.0  # Weight for monocular depth loss (MonoSDF default)
         self.lambda_mono_normal_l1 = 0.0  # Weight for normal L1 loss (MonoSDF default)
         self.lambda_mono_normal_cos = 0.0  # Weight for normal cosine loss (MonoSDF default)
-        self.mono_prior_decay_end = 15000  # End step for exponential decay (MonoSDF uses decay)
+        self.mono_prior_decay_end = 30000  # End step for exponential decay (MonoSDF uses decay)
         
         # Depth reinitialization (Task 2) - Mini-Splatting strategy
-        self.depth_reinit_every = -1   # List of iterations to reinitialize (e.g., [2000, 5000, 10000])
-        self.reinit_target_points_ratio = 0.8 # Target total points for reinitialization (3.5M default)
+        self.depth_reinit_every = -1   # frequency of depth-based reinitialization (e.g., every 5000 iterations)
+        self.reinit_target_points = 400000 # Target total points for reinitialization (3.5M default for m360)
         
         # MCMC parameters
         self.noise_lr = 5e5        # SGLD noise learning rate

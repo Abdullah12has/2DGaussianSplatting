@@ -168,7 +168,30 @@ class GaussianModel:
         else:
             self._exposure = None
             self._exposure_mapping = None
+    def reinitial_pts(self, pts, rgb):
 
+        fused_point_cloud = pts
+        fused_color = RGB2SH(rgb)
+        features = torch.zeros((fused_color.shape[0], 3, (self.max_sh_degree + 1) ** 2)).float().cuda()
+        features[:, :3, 0 ] = fused_color
+        features[:, 3:, 1:] = 0.0
+
+        # print("Number of points at initialisation : ", fused_point_cloud.shape[0])
+
+        dist2 = torch.clamp_min(distCUDA2(fused_point_cloud), 0.0000001)
+        scales = torch.log(torch.sqrt(dist2))[...,None].repeat(1, 2)
+        rots = torch.zeros((fused_point_cloud.shape[0], 4), device="cuda")
+        rots[:, 0] = 1
+
+        opacities = inverse_sigmoid(0.1 * torch.ones((fused_point_cloud.shape[0], 1), dtype=torch.float, device="cuda"))
+
+        self._xyz = nn.Parameter(fused_point_cloud.requires_grad_(True))
+        self._features_dc = nn.Parameter(features[:,:,0:1].transpose(1, 2).contiguous().requires_grad_(True))
+        self._features_rest = nn.Parameter(features[:,:,1:].transpose(1, 2).contiguous().requires_grad_(True))
+        self._scaling = nn.Parameter(scales.requires_grad_(True))
+        self._rotation = nn.Parameter(rots.requires_grad_(True))
+        self._opacity = nn.Parameter(opacities.requires_grad_(True))
+        self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
     def training_setup(self, training_args, opt_dict=None):
         self.percent_dense = training_args.percent_dense
         self.xyz_gradient_accum = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
@@ -274,54 +297,7 @@ class GaussianModel:
         optimizable_tensors = self.replace_tensor_to_optimizer(opacities_new, "opacity")
         self._opacity = optimizable_tensors["opacity"]
 
-    def reinitialize_from_depth(self, pts, rgb, training_args):
-        """
-        Reinitialize Gaussians using depth-sampled points (Mini-Splatting strategy).
-        
-        COMPLETE REPLACEMENT - discards all existing Gaussians and rebuilds from depth.
-        
-        Args:
-            pts: [N, 3] 3D points (torch tensor, already on CUDA)
-            rgb: [N, 3] corresponding RGB colors 0-1 (torch tensor, already on CUDA)  
-            training_args: Training arguments for optimizer setup
-        """
-        from utils.sh_utils import RGB2SH
-        
-        # pts and rgb are already torch tensors on CUDA from aggregate_depth_points
-        fused_point_cloud = pts.float().cuda()
-        fused_color = RGB2SH(rgb.float().cuda())
-        
-        n_new = fused_point_cloud.shape[0]
-        print(f"[Depth Reinitialization] Replacing ALL Gaussians with {n_new} depth-sampled points")
-        
-        features = torch.zeros((fused_color.shape[0], 3, (self.max_sh_degree + 1) ** 2)).float().cuda()
-        features[:, :3, 0] = fused_color
-        features[:, 3:, 1:] = 0.0
 
-        # Compute scales based on local density
-        dist2 = torch.clamp_min(distCUDA2(fused_point_cloud), 0.0000001)
-        scales = torch.log(torch.sqrt(dist2))[..., None].repeat(1, 2)  # 2D for 2DGS
-        
-        # Use identity quaternion like Mini-Splatting
-        rots = torch.zeros((fused_point_cloud.shape[0], 4), device="cuda")
-        rots[:, 0] = 1  # Identity quaternion [1, 0, 0, 0]
-
-        opacities = self.inverse_opacity_activation(0.1 * torch.ones((fused_point_cloud.shape[0], 1), dtype=torch.float, device="cuda"))
-
-        self._xyz = nn.Parameter(fused_point_cloud.requires_grad_(True))
-        self._features_dc = nn.Parameter(features[:, :, 0:1].transpose(1, 2).contiguous().requires_grad_(True))
-        self._features_rest = nn.Parameter(features[:, :, 1:].transpose(1, 2).contiguous().requires_grad_(True))
-        self._scaling = nn.Parameter(scales.requires_grad_(True))
-        self._rotation = nn.Parameter(rots.requires_grad_(True))
-        self._opacity = nn.Parameter(opacities.requires_grad_(True))
-        
-        # Reset auxiliary variables (like Mini-Splatting reinitial_pts)
-        self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
-        
-        # Rebuild optimizer with new parameters (also resets xyz_gradient_accum and denom)
-        self.training_setup(training_args)
-        
-        print(f"[Depth Reinitialization] Complete. Total Gaussians: {self.get_xyz.shape[0]}")
 
     def load_ply_and_exposure(self, path, exposure_path, cam_infos: list = [], use_exposure_optimization=False):
         plydata = PlyData.read(path)

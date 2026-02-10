@@ -16,16 +16,18 @@ from utils.render_utils import generate_path, create_videos
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from utils.graphics_utils import fov2focal
 import cv2
 import numpy as np
 import os
 import glob
 from skimage.morphology import dilation, disk
 import argparse
-
+from utils.mono_prior import estimate_depth, estimate_normal
 import trimesh
 from pathlib import Path
 import subprocess
+from utils.loss_utils import ScaleAndShiftInvariantLoss, get_normal_loss
 
 import sys
 from tqdm import tqdm
@@ -33,6 +35,7 @@ import open3d as o3d
 import open3d.core as o3c
 
 import torch
+
 
 
 
@@ -58,32 +61,43 @@ if __name__ == "__main__":
 
     args = get_combined_args(parser)
     print("Rendering " + args.model_path)
-    
+    normal_predictor = torch.hub.load("hugoycj/DSINE-hub", "DSINE", trust_repo=True)
+
 # Convert legacy meshes to Tensor meshes
     dataset, iteration, pipe = model.extract(args), args.iteration, pipeline.extract(args)
+    bg_color = [1,1,1] if dataset.white_background else [0, 0, 0]
+    background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
 
     t_mesh2 = trimesh.load(os.path.join(args.source_path, '../scans', 'mesh_aligned_0.05.ply'))
     
     gaussians = GaussianModel(dataset.sh_degree)
     scene = Scene(dataset, gaussians, load_iteration=iteration, shuffle=False)
-    vertices = gaussians.get_xyz
-    vertices = torch.cat((vertices, torch.ones_like(vertices[:, :1])), dim=-1)
-    vertices = vertices.float()
-    print (gaussians.get_xyz.shape)
+    depth_loss= ScaleAndShiftInvariantLoss(alpha=0.5, scales=1, reduction='image-based')
 
-    for viewpoint_camera in tqdm(scene.getTrainCameras(), desc="Culling progress"):
+    for viewpoint_camera in tqdm(scene.getTestCameras(), desc="Culling progress"):
         sampled_masks = []
-        with torch.no_grad():
-            print (viewpoint_camera.original_image.shape)
-            w2c=viewpoint_camera.world_view_transform
-            cam_points = vertices@w2c
-            print(cam_points[0])
-            c2w = torch.inverse(viewpoint_camera.world_view_transform)
-            R=c2w[:3, :3]
-            t = c2w[3, :3]
-            cam_points = cam_points[:, :3] 
-            restored_points = cam_points@R + t
-            print(restored_points[0],vertices[0])
+        with torch.inference_mode():
+            render_pkg = render(viewpoint_camera, gaussians, pipe, background)
+            #depth_rendered = render_pkg["surf_depth"]
+            #depth_rendered = 1/depth_rendered
+            #depth_rendered = (depth_rendered - depth_rendered.min()) / (depth_rendered.max() - depth_rendered.min())
+            rendered_normal = render_pkg["rend_normal"]
+            #print(depth_rendered.shape)
+            #torchvision.utils.save_image(depth_rendered, f"render_{viewpoint_camera.image_name}.png")
+            normal= estimate_normal (viewpoint_camera)
+            #normal = (normal + 1.0) / 2.0
+            #depth = estimate_depth(viewpoint_camera).unsqueeze(0)
+            
+            #loss = depth_loss(depth_rendered, depth, mask= torch.ones_like(depth_rendered))
+            
+            normal_l1, normal_cos = get_normal_loss(rendered_normal.permute(1, 2, 0), normal.permute(1, 2, 0))
+            #print("Depth loss: ", loss.item())
+            print("Normal L1 loss: ", normal_l1.item())
+            print("Normal Cosine loss: ", normal_cos.item())
+            #torchvision.utils.save_image(depth, f"render_{viewpoint_camera.image_name}_depth.png")
+        
+            
+
             
             
 # Sample to point clouds
