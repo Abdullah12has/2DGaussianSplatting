@@ -53,10 +53,10 @@ if __name__ == "__main__":
                  'render':'--depth_ratio 1 --images ../dslr/resized_undistorted_images --test_images ../dslr/resized_undistorted_images --train_transforms_file ../dslr/nerfstudio/transforms_undistorted.json --test_transforms_file ../dslr/nerfstudio/transforms_undistorted.json --eval --skip_train --skip_test --voxel_size 0.02 --depth_trunc 7 --sdf_trunc 0.1 --compute_chamfer --iteration 30000'}
 
 }
-    all_combinations = [['MCMC']]
+    #all_combinations = [['MCMC']]
     print("Total combinations to test: ", all_combinations)
     print("Total number of combinations: ", len(all_combinations))
-    modification_opts = {'exposure_optimization':'--use_exposure_optimization', 'MCMC':'--mcmc', 'depth Gaussian reinitialization':f'--depth_reinit_every 5000 --reinit_target_points_ratio 1.4', 'normal_depth_prior':'  --lambda_mono_depth 0.1 --lambda_mono_normal_l1 0.05 --lambda_mono_normal_cos 0.05 --mono_prior_decay_end 15000'}
+    modification_opts = {'exposure_optimization':'--use_exposure_optimization', 'MCMC':'--mcmc', 'depth Gaussian reinitialization':f'--depth_reinit_every 5000 --reinit_target_points ', 'normal_depth_prior':'  --lambda_mono_depth 0.1 --lambda_mono_normal_l1 0.05 --lambda_mono_normal_cos 0.05 --mono_prior_decay_end 15000'}
     #file_list = read_file_to_list_clean(os.path.join(dataset_path, "to_download.txt"))
     #val_list = read_file_to_list_clean(os.path.join(dataset_path, "splits/nvs_sem_val.txt"))
     #downloaded_val_list = [line for line in file_list if line in val_list]

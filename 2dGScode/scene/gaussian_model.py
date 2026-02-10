@@ -298,7 +298,6 @@ class GaussianModel:
         self._opacity = optimizable_tensors["opacity"]
 
 
-
     def load_ply_and_exposure(self, path, exposure_path, cam_infos: list = [], use_exposure_optimization=False):
         plydata = PlyData.read(path)
 
