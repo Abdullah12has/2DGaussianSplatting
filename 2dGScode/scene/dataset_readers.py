@@ -350,15 +350,15 @@ def readCamerasFromTransforms1(path, transforms_file, white_background, image_su
                 image = image.convert("RGB")
             image.load()  # Force loading the image data into memory
         # Load monocular priors if available
-        #    mono_depth = None
-        #    mono_normal = None
-        #    if has_mono_priors:
-        #        depth_path = os.path.join(mono_depth_dir, f"{image_name}.npy")
-        #        normal_path = os.path.join(mono_normal_dir, f"{image_name}.npy")
-        #        if os.path.exists(depth_path):
-        #            mono_depth = np.load(depth_path)
-        #        if os.path.exists(normal_path):
-        #            mono_normal = np.load(normal_path)
+            mono_depth = None
+            mono_normal = None
+            #if has_mono_priors:
+            #    depth_path = os.path.join(mono_depth_dir, f"{image_name}.npy")
+            #    normal_path = os.path.join(mono_normal_dir, f"{image_name}.npy")
+            #    if os.path.exists(depth_path):
+            #        mono_depth = np.load(depth_path)
+            #    if os.path.exists(normal_path):
+            #        mono_normal = np.load(normal_path)
             fovy = focal2fov(fl_y, image.size[1])
             fovx = focal2fov(fl_x, image.size[0])
             FovY = fovy 

@@ -13,40 +13,8 @@ from scene.cameras import Camera
 import numpy as np
 from utils.general_utils import PILtoTorch
 from utils.graphics_utils import fov2focal
-from PIL import Image
 
 WARNED = False
-
-
-def _resize_mono_prior(prior_np, target_w, target_h):
-    """Resize a precomputed mono prior numpy array to match training resolution."""
-    if prior_np is None:
-        return None
-    if prior_np.ndim == 2:
-        # Depth: [H, W] → resize via PIL (bilinear)
-        h, w = prior_np.shape
-        if h == target_h and w == target_w:
-            return prior_np
-        pil_img = Image.fromarray(prior_np, mode='F')
-        pil_img = pil_img.resize((target_w, target_h), Image.BILINEAR)
-        return np.array(pil_img, dtype=np.float32)
-    elif prior_np.ndim == 3 and prior_np.shape[2] == 3:
-        # Normal: [H, W, 3] → resize each channel
-        h, w, _ = prior_np.shape
-        if h == target_h and w == target_w:
-            return prior_np
-        channels = []
-        for c in range(3):
-            pil_ch = Image.fromarray(prior_np[:, :, c], mode='F')
-            pil_ch = pil_ch.resize((target_w, target_h), Image.BILINEAR)
-            channels.append(np.array(pil_ch, dtype=np.float32))
-        resized = np.stack(channels, axis=-1)
-        # Re-normalize after interpolation
-        norm = np.linalg.norm(resized, axis=-1, keepdims=True)
-        resized = resized / (norm + 1e-8)
-        return resized
-    return prior_np
-
 
 def loadCam(args, id, cam_info, resolution_scale):
     orig_w, orig_h = cam_info.image.size
@@ -80,17 +48,10 @@ def loadCam(args, id, cam_info, resolution_scale):
         loaded_mask = None
         gt_image = resized_image_rgb
 
-    # Resize precomputed mono priors to match training resolution
-    target_w, target_h = resolution
-    mono_depth = _resize_mono_prior(cam_info.mono_depth, target_w, target_h)
-    mono_normal = _resize_mono_prior(cam_info.mono_normal, target_w, target_h)
-
-    return Camera(colmap_id=cam_info.uid, R=cam_info.R, T=cam_info.T,
-                  FoVx=cam_info.FovX, FoVy=cam_info.FovY,
+    return Camera(colmap_id=cam_info.uid, R=cam_info.R, T=cam_info.T, 
+                  FoVx=cam_info.FovX, FoVy=cam_info.FovY, 
                   image=gt_image, gt_alpha_mask=loaded_mask,
-                  image_name=cam_info.image_name, uid=id, data_device=args.data_device,
-                  mono_depth=mono_depth, mono_normal=mono_normal)
-
+                  image_name=cam_info.image_name, uid=id, data_device=args.data_device)
 
 def cameraList_from_camInfos(cam_infos, resolution_scale, args):
     camera_list = []
