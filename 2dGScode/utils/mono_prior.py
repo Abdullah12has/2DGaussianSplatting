@@ -51,34 +51,70 @@ def get_depth_model(device="cuda"):
 
 def get_normal_model(device="cuda"):
     """
-    Load Omnidata normal estimation model.
-    
-    Omnidata models should be downloaded from:
-    https://github.com/EPFL-VILAB/omnidata
-    
-    Place weights in: ./pretrained_models/omnidata_dpt_normal_v2.ckpt
+    Load Omnidata DPT-Hybrid normal estimation model.
+
+    Tries two approaches:
+    1. Official torch.hub entrypoint (auto-downloads weights)
+    2. MiDaS DPT-Hybrid architecture + local Omnidata weights file
+
+    Local weights path: ./pretrained_models/omnidata_dpt_normal_v2.ckpt
+    Download:
+        pip install huggingface_hub
+        huggingface-cli download clay3d/omnidata omnidata_dpt_normal_v2.ckpt --local-dir pretrained_models/
     """
     global _normal_model
-    
+
     if _normal_model is None:
+        # Approach 1: Official Omnidata torch.hub (auto-downloads weights)
         try:
-            from omnidata_tools.model_util import load_omnidata_normal_model
-            
-            weights_path = Path(__file__).parent.parent / "pretrained_models" / "omnidata_dpt_normal_v2.ckpt"
-            
-            if not weights_path.exists():
-                print(f"Warning: Omnidata normal weights not found at {weights_path}")
-                print("Please download from: https://github.com/EPFL-VILAB/omnidata")
-                return None
-            
-            _normal_model = load_omnidata_normal_model(weights_path, device)
-            _normal_model.eval()
-            
-        except ImportError:
-            print("Warning: omnidata_tools not installed.")
-            print("Using simple Sobel-based normal estimation as fallback.")
+            model = torch.hub.load('alexsax/omnidata_models', 'surface_normal_dpt_hybrid_384')
+            model.to(device)
+            model.eval()
+            _normal_model = model
+            print("[Normal Model] Loaded Omnidata via torch.hub (auto-downloaded)")
+            return _normal_model
+        except Exception as e:
+            print(f"[Normal Model] torch.hub auto-download failed: {e}")
+
+        # Approach 2: MiDaS architecture + local weights file
+        weights_path = Path(__file__).parent.parent / "pretrained_models" / "omnidata_dpt_normal_v2.ckpt"
+
+        if not weights_path.exists():
+            print(f"[Normal Model] Weights not found at {weights_path}")
+            print("  Download with:")
+            print("    pip install huggingface_hub")
+            print(f"    huggingface-cli download clay3d/omnidata omnidata_dpt_normal_v2.ckpt --local-dir {weights_path.parent}")
+            print("  Falling back to depth-derived normals.")
             return None
-    
+
+        try:
+            import torch.nn as nn
+
+            # MiDaS DPT-Hybrid shares the same architecture as Omnidata
+            model = torch.hub.load("isl-org/MiDaS", "DPT_Hybrid", pretrained=False)
+
+            # Replace 1-channel depth head with 3-channel normal head
+            head = list(model.scratch.output_conv.children())
+            model.scratch.output_conv = nn.Sequential(
+                head[0],  # Conv2d(256, 128, 3, 1, 1)
+                head[1],  # Interpolate(scale_factor=2)
+                head[2],  # Conv2d(128, 32, 3, 1, 1)
+                head[3],  # ReLU
+                nn.Conv2d(32, 3, kernel_size=1, stride=1, padding=0),
+            )
+
+            checkpoint = torch.load(str(weights_path), map_location="cpu")
+            model.load_state_dict(checkpoint)
+            model.to(device)
+            model.eval()
+            _normal_model = model
+            print("[Normal Model] Loaded Omnidata DPT-Hybrid from local weights")
+
+        except Exception as e:
+            print(f"[Normal Model] Failed to load: {e}")
+            print("  Falling back to depth-derived normals.")
+            return None
+
     return _normal_model
 
 
@@ -167,55 +203,60 @@ def estimate_normal_from_depth(depth, mask=None, fovx=None, fovy=None):
     return normal.movedim(-1, 0)
 
 
-def estimate_normal(image, device="cuda"):
+def estimate_normal(image, device="cuda", fovx=None, fovy=None):
     """
-    Estimate surface normals from an image.
-    
+    Estimate surface normals from an image using Omnidata or depth fallback.
+
     Args:
         image: PIL Image or numpy array [H, W, 3] (0-255)
         device: torch device
-        
+        fovx: horizontal FoV in radians (used only for depth-derived fallback)
+        fovy: vertical FoV in radians (used only for depth-derived fallback)
+
     Returns:
-        normal: numpy array [H, W, 3] with xyz normal components in [-1, 1]
+        normal: torch tensor [3, H, W] with xyz normal components in [-1, 1]
     """
     model = get_normal_model(device)
-    
+
     if model is None:
-        # Fallback: estimate from depth
         depth = estimate_depth(image, device)
-        return estimate_normal_from_depth(depth)
-    
+        return estimate_normal_from_depth(depth, fovx=fovx, fovy=fovy)
+
     if isinstance(image, np.ndarray):
         image = Image.fromarray(image.astype(np.uint8))
-    
-    # Prepare input for Omnidata
+
     from torchvision import transforms
-    
+
+    orig_w, orig_h = image.size
+
+    # Omnidata preprocessing: resize to 384x384, normalize with mean=0.5 std=0.5
     transform = transforms.Compose([
-        transforms.Resize(384),
-        transforms.CenterCrop(384),
+        transforms.Resize((384, 384), interpolation=transforms.InterpolationMode.BILINEAR),
         transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
     ])
-    
+
     input_tensor = transform(image).unsqueeze(0).to(device)
-    
+
     with torch.no_grad():
         normal_pred = model(input_tensor)
-    
-    # Resize to original
+
+    if normal_pred.dim() == 3:
+        normal_pred = normal_pred.unsqueeze(0)
+
+    # Resize back to original resolution
     normal_pred = F.interpolate(
         normal_pred,
-        size=image.size[::-1],
+        size=(orig_h, orig_w),
         mode="bilinear",
         align_corners=False,
     )
-    
-    # Map from [0,1] to [-1,1], keep as [3, H, W] torch tensor for consistency
-    normal = normal_pred.squeeze()  # [3, H, W]
+
+    # Map from [0,1] to [-1,1]
+    normal = normal_pred.squeeze(0).clamp(0, 1)  # [3, H, W]
     normal = normal * 2 - 1
 
-    # Normalize
+    # L2 normalize
     norm = torch.norm(normal, dim=0, keepdim=True)
     normal = normal / (norm + 1e-8)
 

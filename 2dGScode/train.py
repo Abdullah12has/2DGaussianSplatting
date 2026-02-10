@@ -18,7 +18,7 @@ from lpipsPyTorch import lpips
 import json
 import numpy as np
 from PIL import Image
-from utils.mono_prior import estimate_depth, estimate_normal_from_depth
+from utils.mono_prior import estimate_depth, estimate_normal, estimate_normal_from_depth
 from gaussian_renderer import render, network_gui
 import sys
 from scene import Scene, GaussianModel
@@ -139,21 +139,13 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             # Returns separate L1 and cosine losses
             with torch.no_grad():
                 if viewpoint_cam.mono_normal is None:
-                    # Compute depth if not already available (e.g. lambda_mono_depth=0)
-                    if depth_estimate is None:
-                        if viewpoint_cam.mono_depth is not None:
-                            depth_estimate = viewpoint_cam.mono_depth.cuda()
-                        else:
-                            gt_image_pil = Image.fromarray(
-                                (viewpoint_cam.original_image.permute(1, 2, 0) * 255).byte().numpy()
-                            )
-                            depth_estimate = estimate_depth(gt_image_pil, device="cuda")
-                            viewpoint_cam.mono_depth = depth_estimate.cpu()
-                    normal_estimate = estimate_normal_from_depth(
-                            depth_estimate,
-                            fovx=viewpoint_cam.FoVx,
-                            fovy=viewpoint_cam.FoVy
-                        )
+                    gt_image_pil = Image.fromarray(
+                        (viewpoint_cam.original_image.permute(1, 2, 0) * 255).byte().numpy()
+                    )
+                    normal_estimate = estimate_normal(
+                        gt_image_pil, device="cuda",
+                        fovx=viewpoint_cam.FoVx, fovy=viewpoint_cam.FoVy
+                    )
                     viewpoint_cam.mono_normal = normal_estimate.cpu() if normal_estimate is not None else None
                 else:
                     normal_estimate = viewpoint_cam.mono_normal.cuda()
