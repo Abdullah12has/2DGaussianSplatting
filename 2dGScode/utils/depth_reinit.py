@@ -205,8 +205,8 @@ def aggregate_depth_points(
                 depth_map = depth_map.squeeze(0)
             
             H,W = depth_map.shape
-            # Importance sampling: prioritize low-alpha regions (under-reconstructed)
-            prob = 1 - accum_alpha  # Higher probability for empty space
+            # Importance sampling: prioritize opaque regions (reliable depth)
+            prob = accum_alpha  # Higher probability where depth is meaningful
             prob = prob.flatten()
             
             # Filter out invalid depths
