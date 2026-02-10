@@ -13,19 +13,10 @@ import os
 import torch
 import math
 from random import randint
-<<<<<<< HEAD
 from utils.loss_utils import l1_loss, ssim,ScaleAndShiftInvariantLoss, get_normal_loss
 from lpipsPyTorch import lpips
 import json
 from utils.mono_prior import estimate_depth, estimate_normal, get_decay_factor
-=======
-from utils.loss_utils import l1_loss, ssim, scale_invariant_depth_loss, mono_normal_loss
-from lpipsPyTorch import lpips
-import json
-import numpy as np
-from PIL import Image
-from utils.mono_prior import estimate_depth, estimate_normal_from_depth
->>>>>>> 4e13556baacb58678c06397b99f85f34b57eae4e
 from gaussian_renderer import render, network_gui
 import sys
 from scene import Scene, GaussianModel
@@ -72,12 +63,8 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     ema_mono_depth_for_log = 0.0
     ema_mono_normal_l1_for_log = 0.0
     ema_mono_normal_cos_for_log = 0.0
-<<<<<<< HEAD
     ema_opacity_reg_for_log = 0.0
     ema_scale_reg_for_log = 0.0
-=======
-
->>>>>>> 4e13556baacb58678c06397b99f85f34b57eae4e
     progress_bar = tqdm(range(first_iter, opt.iterations), desc="Training progress")
     first_iter += 1
     for iteration in range(first_iter, opt.iterations + 1):        
