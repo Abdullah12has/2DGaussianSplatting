@@ -49,20 +49,22 @@ if __name__ == "__main__":
         results[key] = {}
         for metric in results_dict[key][0].keys():
             results[key][metric] = sum([result[metric] for result in results_dict[key]])/len(results_dict[key])
-            
+    
     combination_names = [ '+'.join([opt.replace('_',' ') for opt in comb]) if len(comb)>0 else "base model" for comb in all_combinations]
     results = {combination: results.get(combination, {}) for combination in combination_names}
     results_final = {}  
     for key in results.keys():
         value= results[key]
         key = key.replace('MCMC','1').replace('depth Gaussian reinitialization','2').replace('normal depth prior','3')
+        print(key)
         results_final[key]= value
     df = pd.DataFrame.from_dict(results_final, orient='index')
     latex_table = df.to_latex(
         float_format="%.4f"
     )
     print(latex_table)
+    with open("my_table.tex", "w") as f:
+        f.write(latex_table)
 
 
 
-    #print('scenes to process: ', downloaded_val_list)
