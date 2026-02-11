@@ -3,6 +3,7 @@ import os
 from itertools import combinations
 import json
 from time import sleep
+from narwhals import col
 import pandas as pd
 
 
@@ -56,15 +57,35 @@ if __name__ == "__main__":
     for key in results.keys():
         value= results[key]
         key = key.replace('MCMC','1').replace('depth Gaussian reinitialization','2').replace('normal depth prior','3')
-        print(key)
         results_final[key]= value
+    
     df = pd.DataFrame.from_dict(results_final, orient='index')
-    latex_table = df.to_latex(
-        float_format="%.4f"
-    )
+    to_min = ['L1', 'LPIPS', 'CD']
+    to_max = ['PSNR', 'SSIM']
+    def bold_best(col):
+        if col.name in to_min:
+            print("Minimizing metric: ", col.name)
+            is_best = col == col.min()
+        elif col.name in to_max:
+            is_best = col == col.max()
+        elif col.name == 'Points':
+            return col.astype(int)  # Return original values for metrics that are neither minimized nor maximized
+        return ['\\textbf{' + f'{v:.3f}' + '}' if b else f'{v:.3f}' for v, b in zip(col, is_best)]
+    
+        # Reorder columns - specify your desired column order
+    desired_order = ['PSNR', 'SSIM', 'L1', 'LPIPS', 'CD','Points']  # Adjust as needed
+    df = df[desired_order].apply(bold_best)
+    header_map = {
+        'PSNR': 'PSNR $\\uparrow$',
+        'SSIM': 'SSIM $\\uparrow$',
+        'L1': 'L1 $\\downarrow$',
+        'LPIPS': 'LPIPS $\\downarrow$',
+        'CD': 'CD $\\downarrow$',
+        'Points': 'Points $\\uparrow$'
+    }
+    latex_table = df.rename(columns=header_map).to_latex(escape=False)
     print(latex_table)
-    with open("my_table.tex", "w") as f:
-        f.write(latex_table)
 
 
 
+    #print('scenes to process: ', downloaded_val_list)
