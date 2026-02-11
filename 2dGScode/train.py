@@ -231,7 +231,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                         accum_alpha = render_pkg["rend_alpha"]
 
 
-                        prob=1-accum_alpha
+                        prob = accum_alpha
 
                         prob = prob/prob.sum()
                         prob = prob.reshape(-1).cpu().numpy()
